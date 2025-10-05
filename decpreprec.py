@@ -12,7 +12,7 @@ from pydub import AudioSegment
 parser = argparse.ArgumentParser(description="Audio Player for Tape Recording")
 parser.add_argument("--track-gap", type=int, default=5, help="Gap between tracks in seconds (default: 5)")
 parser.add_argument("--duration", type=int, default=60, help="Maximum tape duration in minutes (default: 60)")
-parser.add_argument("--folder", type=str, default="/home/almaz/tracks", help="Folder with audio tracks")
+parser.add_argument("--folder", type=str, default="./tracks", help="Folder with audio tracks")
 args = parser.parse_args()
 
 TRACK_GAP_SECONDS = args.track_gap
@@ -23,7 +23,7 @@ target_folder = args.folder
 os.environ["PATH"] += os.pathsep + "/usr/sbin"
 
 # Set ffmpeg as the backend for pydub
-AudioSegment.converter = "/usr/sbin/ffmpeg"
+AudioSegment.converter = "/usr/bin/ffmpeg"
 
 # Initialize pygame mixer (still used for normalization)
 pygame.mixer.init()
@@ -66,7 +66,7 @@ def get_ffprobe_info(filepath):
 def list_tracks(folder):
     tracks = []
     for file in os.listdir(folder):
-        if file.endswith(('.mp3', '.wav', '.flac', '.webm')):
+        if file.endswith(('.mp3', '.wav', '.flac', '.webm', '.m4a')):
             filepath = os.path.join(folder, file)
             duration, codec, quality = get_ffprobe_info(filepath)
             if duration is None:
@@ -158,10 +158,10 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             elapsed = now - start_time
             track_elapsed = now - track_start
             stdscr.clear()
-            stdscr.addstr(f"Deck Recording Mode\n\n")
-            stdscr.addstr(f"[Normalized] = Average dBFS: {avg_dbfs:.2f}\n")
-            stdscr.addstr(f"[Track Gap] = {track_gap} seconds\n\n")
-            stdscr.addstr("Tracks:\n")
+            stdscr.addstr(f"[Deck Recording Mode]\n\n")
+            stdscr.addstr(f"[Normalized] : Average dBFS: {avg_dbfs:.2f}\n")
+            stdscr.addstr(f"[Track Gap] : {track_gap} seconds\n\n")
+            stdscr.addstr("[Tracks]:\n")
             # Show tracklist in deck_tracklist.txt format
             for i, t in enumerate(normalized_tracks):
                 wav_name = os.path.basename(t['path'])
