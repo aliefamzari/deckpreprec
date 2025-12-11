@@ -15,10 +15,12 @@ A nostalgic cassette tape recording utility with authentic 80s aesthetics. Perfe
 - 🎨 **Retro 80s UI** - Neon colors, ASCII art, and authentic cassette tape aesthetics
 - 🔊 **Audio Normalization** - Consistent volume levels across all tracks (cached for speed)
 - 📟 **4-Digit Tape Counter** - Digital counter with configurable rate matching your deck
-- 📊 **VU Meter Progress Bars** - Real-time visual feedback during recording
+- 📊 **Real-Time VU Meters** - Segmented block displays with actual audio waveform analysis (L/R channels)
+- 🎚️ **Adaptive Level Scaling** - 95th percentile RMS normalization prevents constant peaking
+- 📼 **Leader Gap Support** - Configurable pre-roll for non-magnetic leader tape
 - ⏱️ **Duration Management** - Ensures tracks fit within cassette tape limits
-- 🎵 **Track Preview** - Listen before recording
-- 📝 **Tracklist Generation** - Creates reference file with timestamps and counter positions
+- 🎵 **Track Preview** - Listen before recording with visual indicators
+- 📝 **Timestamped Tracklists** - Creates unique reference files with counter positions
 - ⏸️ **Configurable Track Gaps** - Set silence between tracks
 - 🎬 **10-Second Prep Countdown** - Time to press record on your deck
 
@@ -122,7 +124,7 @@ python decprec.py
 ### Advanced Options
 
 ```bash
-python decprec.py --folder ./tracks --track-gap 5 --duration 60 --counter-rate 1.0
+python decprec.py --folder ./tracks --track-gap 5 --duration 60 --counter-rate 1.0 --leader-gap 10
 ```
 
 **Arguments:**
@@ -130,6 +132,7 @@ python decprec.py --folder ./tracks --track-gap 5 --duration 60 --counter-rate 1
 - `--track-gap N` - Gap between tracks in seconds (default: `5`)
 - `--duration N` - Maximum tape duration in minutes (default: `60`)
 - `--counter-rate N` - Counter increments per second (default: `1.0`)
+- `--leader-gap N` - Leader gap before first track in seconds (default: `10`)
 
 ### Supported Audio Formats
 
@@ -147,7 +150,8 @@ deckpreprec/
 │   ├── normalized/            # Auto-generated normalized files
 │   │   ├── song1.mp3.normalized.wav
 │   │   └── song2.wav.normalized.wav
-│   └── deck_tracklist.txt     # Auto-generated reference file
+│   ├── deck_tracklist_20241211_143022.txt  # Timestamped tracklists
+│   └── deck_tracklist_20241211_151545.txt
 ├── venv/                      # Virtual environment
 └── README.md
 ```
@@ -193,12 +197,17 @@ deckpreprec/
    - Wait for countdown to complete
 
 5. **Recording**
-   - Playback starts automatically
-   - Monitor tape counter and progress
-   - `deck_tracklist.txt` saved for reference
+   - Leader gap countdown (default 10s for non-magnetic tape)
+   - Tape counter starts at 0000 during leader gap
+   - First track starts after leader gap
+   - Monitor real-time VU meters (L/R channels)
+   - Watch tape counter and track progress
+   - Timestamped tracklist saved automatically
 
 6. **Reference Your Tracklist**
-   - Check `tracks/deck_tracklist.txt` for:
+   - Check `tracks/deck_tracklist_YYYYMMDD_HHMMSS.txt` for:
+     - Session timestamp
+     - Leader gap counter range
      - Track start/end times
      - Counter positions
      - Track durations
@@ -206,11 +215,14 @@ deckpreprec/
 ## 🎨 80s Aesthetic Features
 
 - **Neon Color Scheme:** Cyan, magenta, yellow, green
-- **ASCII Cassette Art:** Authentic tape graphics
-- **Digital Counter Display:** 4-digit LED-style counter
-- **VU Meter Bars:** Block character progress visualization
+- **ASCII Cassette Art:** Authentic tape graphics in menu and recording mode
+- **Digital Counter Display:** 4-digit LED-style counter with real-time updates
+- **Segmented VU Meters:** Block character displays (██) with spacing between L/R channels
+- **Dynamic Color Zones:** White (0-85%) → Red (85-100%) peak indicators
+- **Waveform Analysis:** Pre-computed RMS levels with 50ms chunk resolution
 - **Retro Box Drawing:** Double-line borders and frames
 - **Blinking Countdown:** 80s digital clock effect
+- **Track Preview Indicator:** Musical note (♪) symbol for playing tracks
 
 ## 📝 Configuration Tips
 
@@ -223,6 +235,20 @@ python decprec.py --counter-rate 1.0
 
 # If counter reaches 120 after 1 minute
 python decprec.py --counter-rate 2.0
+```
+
+### Leader Gap Configuration
+
+Adjust leader gap for non-magnetic tape at beginning:
+```bash
+# Short leader (5 seconds)
+python decprec.py --leader-gap 5
+
+# Standard leader (10 seconds - default)
+python decprec.py --leader-gap 10
+
+# Long leader (15 seconds)
+python decprec.py --leader-gap 15
 ```
 
 ### Common Tape Lengths
