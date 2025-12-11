@@ -56,6 +56,7 @@ import time
 import curses
 import random
 import math
+from datetime import datetime
 from pydub import AudioSegment
 
 # --- Argument parsing ---
@@ -382,7 +383,8 @@ def normalize_tracks(tracks, folder, stdscr=None):
     return normalized_tracks
 
 
-def write_deck_tracklist(normalized_tracks, track_gap, output_path, counter_rate):
+def write_deck_tracklist(normalized_tracks, track_gap, folder, counter_rate):
+    """Generate tracklist file with timestamp to avoid overwriting"""
     lines = []
     current_time = 0
     for idx, track in enumerate(normalized_tracks):
@@ -397,12 +399,21 @@ def write_deck_tracklist(normalized_tracks, track_gap, output_path, counter_rate
             f"    Counter: {counter_start:04d} - {counter_end:04d}"
         )
         current_time = end_time + (track_gap if idx < len(normalized_tracks)-1 else 0)
+    
+    # Generate unique filename with timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_filename = f"deck_tracklist_{timestamp}.txt"
+    output_path = os.path.join(folder, output_filename)
+    
     with open(output_path, "w") as f:
         f.write("Tape Deck Tracklist Reference\n")
         f.write("="*40 + "\n")
+        f.write(f"Session: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"Counter Rate: {counter_rate} counts/second\n\n")
         for line in lines:
             f.write(line + "\n")
+    
+    return output_path
 
 
 def show_normalization_summary(stdscr, normalized_tracks):
@@ -765,9 +776,8 @@ def main_menu(folder):
                 proceed = show_normalization_summary(stdscr, normalized_tracks)
                 if not proceed:
                     continue
-                # Write tracklist file
-                output_txt = os.path.join(folder, "deck_tracklist.txt")
-                write_deck_tracklist(normalized_tracks, TRACK_GAP_SECONDS, output_txt, COUNTER_RATE)
+                # Write tracklist file with unique timestamp
+                output_txt = write_deck_tracklist(normalized_tracks, TRACK_GAP_SECONDS, folder, COUNTER_RATE)
                 # 10-second prep countdown (cancellable)
                 ok = prep_countdown(stdscr, seconds=10)
                 if not ok:
