@@ -219,21 +219,42 @@ def analyze_audio_levels(audio_segment, chunk_duration_ms=50):
         # Fallback for mono
         left_channel = right_channel = audio_segment
     
-    # Analyze in chunks
+    # First pass: collect all RMS values to find peak
+    rms_values_l = []
+    rms_values_r = []
     for i in range(0, duration_ms, chunk_duration_ms):
         chunk_l = left_channel[i:i + chunk_duration_ms]
         chunk_r = right_channel[i:i + chunk_duration_ms]
         
-        # Get RMS (root mean square) for volume level
         rms_l = chunk_l.rms if len(chunk_l) > 0 else 0
         rms_r = chunk_r.rms if len(chunk_r) > 0 else 0
         
-        # Normalize RMS to 0.0-1.0 range
-        # Typical RMS range: 0-20000 for 16-bit audio
-        # Using square root for perceptual loudness
-        max_rms = 8000  # Adjusted for better sensitivity
-        level_l = min(1.0, (rms_l / max_rms) ** 0.5)
-        level_r = min(1.0, (rms_r / max_rms) ** 0.5)
+        rms_values_l.append(rms_l)
+        rms_values_r.append(rms_r)
+    
+    # Calculate adaptive max_rms based on 95th percentile (avoid outlier peaks)
+    if rms_values_l and rms_values_r:
+        sorted_l = sorted(rms_values_l)
+        sorted_r = sorted(rms_values_r)
+        percentile_95_idx = int(len(sorted_l) * 0.95)
+        max_rms_l = sorted_l[percentile_95_idx] if percentile_95_idx < len(sorted_l) else sorted_l[-1]
+        max_rms_r = sorted_r[percentile_95_idx] if percentile_95_idx < len(sorted_r) else sorted_r[-1]
+        # Use the higher of the two channels, add 20% headroom
+        adaptive_max_rms = max(max_rms_l, max_rms_r) * 1.2
+        # Ensure reasonable minimum
+        adaptive_max_rms = max(adaptive_max_rms, 1000)
+    else:
+        adaptive_max_rms = 8000
+    
+    # Second pass: normalize using adaptive max
+    for i in range(0, duration_ms, chunk_duration_ms):
+        idx = i // chunk_duration_ms
+        rms_l = rms_values_l[idx] if idx < len(rms_values_l) else 0
+        rms_r = rms_values_r[idx] if idx < len(rms_values_r) else 0
+        
+        # Normalize RMS to 0.0-1.0 range using adaptive max
+        level_l = min(1.0, (rms_l / adaptive_max_rms) ** 0.5)
+        level_r = min(1.0, (rms_r / adaptive_max_rms) ** 0.5)
         
         levels.append((i, level_l, level_r))
     
