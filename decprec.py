@@ -529,20 +529,24 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
                 else:
                     # Don't clear entire screen, just update changed areas
                     pass
-            # Title
-            stdscr.addstr(0, 0, "╔" + "═" * 78 + "╗", curses.color_pair(COLOR_CYAN))
-            stdscr.addstr(1, 30, "DECK RECORDING MODE", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
-            stdscr.addstr(2, 0, "╚" + "═" * 78 + "╝", curses.color_pair(COLOR_CYAN))
+            # Draw cassette art at top
+            draw_cassette_art(stdscr, 0, 10)
+            
+            # Title below cassette
+            title_y = 27
+            stdscr.addstr(title_y, 0, "╔" + "═" * 78 + "╗", curses.color_pair(COLOR_CYAN))
+            stdscr.addstr(title_y + 1, 30, "DECK RECORDING MODE", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+            stdscr.addstr(title_y + 2, 0, "╚" + "═" * 78 + "╝", curses.color_pair(COLOR_CYAN))
             # Counter and stats - use full string for alignment
-            stdscr.addstr(4, 2, "┌─ TAPE COUNTER ──┐", curses.color_pair(COLOR_YELLOW))
+            stdscr.addstr(title_y + 4, 2, "┌─ TAPE COUNTER ──┐", curses.color_pair(COLOR_YELLOW))
             counter_line = f"│     {current_counter:04d}        │"
-            stdscr.addstr(5, 2, counter_line[:6], curses.color_pair(COLOR_YELLOW))
+            stdscr.addstr(title_y + 5, 2, counter_line[:6], curses.color_pair(COLOR_YELLOW))
             stdscr.addstr(f"{current_counter:04d}", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
             stdscr.addstr(counter_line[10:], curses.color_pair(COLOR_YELLOW))
-            stdscr.addstr(6, 2, "└─────────────────┘", curses.color_pair(COLOR_YELLOW))
-            stdscr.addstr(4, 25, f"AVG dBFS: {avg_dbfs:+.2f}", curses.color_pair(COLOR_CYAN))
-            stdscr.addstr(5, 25, f"TRACK GAP: {track_gap}s", curses.color_pair(COLOR_CYAN))
-            stdscr.addstr(8, 0, "[TRACKS]:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+            stdscr.addstr(title_y + 6, 2, "└─────────────────┘", curses.color_pair(COLOR_YELLOW))
+            stdscr.addstr(title_y + 4, 25, f"AVG dBFS: {avg_dbfs:+.2f}", curses.color_pair(COLOR_CYAN))
+            stdscr.addstr(title_y + 5, 25, f"TRACK GAP: {track_gap}s", curses.color_pair(COLOR_CYAN))
+            stdscr.addstr(title_y + 8, 0, "[TRACKS]:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
             for i, t in enumerate(normalized_tracks):
                 wav_name = os.path.basename(t['path'])
                 start_time_track, end_time_track, duration = track_times[i]
@@ -551,7 +555,7 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
                 is_current = i == idx
                 marker = "▶▶" if is_current else "  "
                 color = COLOR_GREEN if is_current else COLOR_CYAN
-                line_y = 9 + (i * 3)
+                line_y = title_y + 9 + (i * 3)
                 stdscr.addstr(line_y, 0, marker, curses.color_pair(COLOR_GREEN) | curses.A_BOLD if is_current else curses.color_pair(COLOR_WHITE))
                 stdscr.addstr(f" {i+1:02d}. ", curses.color_pair(color))
                 stdscr.addstr(f"{wav_name}\n", curses.color_pair(COLOR_YELLOW) if is_current else curses.color_pair(COLOR_WHITE))
@@ -560,7 +564,7 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
                 stdscr.addstr(f"{counter_start:04d}", curses.color_pair(COLOR_YELLOW))
                 stdscr.addstr(" - ", curses.color_pair(color))
                 stdscr.addstr(f"{counter_end:04d}\n", curses.color_pair(COLOR_YELLOW))
-            play_y = 9 + (len(normalized_tracks) * 3) + 1
+            play_y = title_y + 9 + (len(normalized_tracks) * 3) + 1
             stdscr.addstr(play_y, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
             stdscr.addstr(play_y + 1, 0, "NOW PLAYING: ", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
             stdscr.addstr(f"{os.path.basename(track['path'])}", curses.color_pair(COLOR_YELLOW))
