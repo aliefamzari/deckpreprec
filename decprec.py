@@ -19,13 +19,14 @@ Features:
   • Generates detailed tracklist reference file with counter positions
 
 Usage:
-  python3 decprec.py --folder ./tracks --track-gap 5 --duration 60 --counter-rate 1.0
+  python3 decprec.py --folder ./tracks --track-gap 5 --duration 60 --counter-rate 1.0 --leader-gap 10
 
 Arguments:
   --folder        Path to audio tracks directory (default: ./tracks)
   --track-gap     Gap between tracks in seconds (default: 5)
   --duration      Maximum tape duration in minutes (default: 60)
   --counter-rate  Tape counter increments per second (default: 1.0)
+  --leader-gap    Leader gap before first track in seconds (default: 10)
 
 Keyboard Controls:
   Main Menu:
@@ -65,12 +66,14 @@ parser.add_argument("--track-gap", type=int, default=5, help="Gap between tracks
 parser.add_argument("--duration", type=int, default=60, help="Maximum tape duration in minutes (default: 60)")
 parser.add_argument("--folder", type=str, default="./tracks", help="Folder with audio tracks")
 parser.add_argument("--counter-rate", type=float, default=1.0, help="Tape counter increments per second (default: 1.0)")
+parser.add_argument("--leader-gap", type=int, default=10, help="Leader gap before first track in seconds (default: 10)")
 args = parser.parse_args()
 
 TRACK_GAP_SECONDS = args.track_gap
 TOTAL_DURATION_MINUTES = args.duration
 TARGET_FOLDER = args.folder
 COUNTER_RATE = args.counter_rate
+LEADER_GAP_SECONDS = args.leader_gap
 
 # Add /usr/sbin to PATH for ffmpeg/ffprobe/ffplay if present
 os.environ["PATH"] += os.pathsep + "/usr/sbin"
@@ -383,10 +386,10 @@ def normalize_tracks(tracks, folder, stdscr=None):
     return normalized_tracks
 
 
-def write_deck_tracklist(normalized_tracks, track_gap, folder, counter_rate):
+def write_deck_tracklist(normalized_tracks, track_gap, folder, counter_rate, leader_gap):
     """Generate tracklist file with timestamp to avoid overwriting"""
     lines = []
-    current_time = 0
+    current_time = leader_gap  # Start after leader gap
     for idx, track in enumerate(normalized_tracks):
         start_time = current_time
         duration = int(round(track['audio'].duration_seconds))
@@ -409,7 +412,8 @@ def write_deck_tracklist(normalized_tracks, track_gap, folder, counter_rate):
         f.write("Tape Deck Tracklist Reference\n")
         f.write("="*40 + "\n")
         f.write(f"Session: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"Counter Rate: {counter_rate} counts/second\n\n")
+        f.write(f"Counter Rate: {counter_rate} counts/second\n")
+        f.write(f"Leader Gap: {leader_gap}s (Counter: 0000 - {int(leader_gap * counter_rate):04d})\n\n")
         for line in lines:
             f.write(line + "\n")
     
@@ -485,15 +489,15 @@ def prep_countdown(stdscr, seconds=10):
     return True
 
 
-def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration):
+def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration, leader_gap):
     stdscr.clear()
     total_tracks = len(normalized_tracks)
-    total_time = sum(int(round(t['audio'].duration_seconds)) for t in normalized_tracks) + (track_gap * (total_tracks - 1))
+    total_time = leader_gap + sum(int(round(t['audio'].duration_seconds)) for t in normalized_tracks) + (track_gap * (total_tracks - 1))
     overall_start_time = time.time()
 
     # Precompute start/end/duration for display
     track_times = []
-    current_time = 0
+    current_time = leader_gap  # Start after leader gap
     for t in normalized_tracks:
         duration = int(round(t['audio'].duration_seconds))
         start_time_track = current_time
@@ -502,6 +506,58 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
         current_time = end_time_track + track_gap
 
     avg_dbfs = sum(t['dBFS'] for t in normalized_tracks) / len(normalized_tracks) if normalized_tracks else 0
+
+    # Leader gap countdown before first track
+    if leader_gap > 0:
+        stdscr.nodelay(True)
+        leader_start_time = time.time()
+        quit_to_menu = False
+        while True:
+            elapsed = time.time() - overall_start_time
+            leader_elapsed = time.time() - leader_start_time
+            current_counter = int(elapsed * COUNTER_RATE)
+            
+            if leader_elapsed >= leader_gap:
+                break
+            
+            stdscr.clear()
+            draw_cassette_art(stdscr, 0, 10)
+            
+            title_y = 27
+            stdscr.addstr(title_y, 0, "╔" + "═" * 78 + "╗", curses.color_pair(COLOR_CYAN))
+            stdscr.addstr(title_y + 1, 28, "LEADER GAP - STAND BY", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+            stdscr.addstr(title_y + 2, 0, "╚" + "═" * 78 + "╝", curses.color_pair(COLOR_CYAN))
+            
+            stdscr.addstr(title_y + 4, 2, "┌─ TAPE COUNTER ──┐", curses.color_pair(COLOR_YELLOW))
+            counter_line = f"│     {current_counter:04d}        │"
+            stdscr.addstr(title_y + 5, 2, counter_line[:6], curses.color_pair(COLOR_YELLOW))
+            stdscr.addstr(f"{current_counter:04d}", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+            stdscr.addstr(counter_line[10:], curses.color_pair(COLOR_YELLOW))
+            stdscr.addstr(title_y + 6, 2, "└─────────────────┘", curses.color_pair(COLOR_YELLOW))
+            
+            leader_remaining = int(leader_gap - leader_elapsed)
+            stdscr.addstr(title_y + 8, 10, f"Waiting for leader tape to pass... {leader_remaining}s", 
+                         curses.color_pair(COLOR_YELLOW) | curses.A_BLINK)
+            stdscr.addstr(title_y + 10, 10, f"First track will start at counter {int(leader_gap * COUNTER_RATE):04d}", 
+                         curses.color_pair(COLOR_CYAN))
+            
+            footer_y = title_y + 15
+            safe_addstr(stdscr, footer_y, 0, "Press ", curses.color_pair(COLOR_WHITE))
+            safe_addstr(stdscr, footer_y, 6, "Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+            safe_addstr(stdscr, footer_y, 7, " to quit to main menu.", curses.color_pair(COLOR_WHITE))
+            
+            stdscr.refresh()
+            
+            key = stdscr.getch()
+            if key in (ord('q'), ord('Q')):
+                quit_to_menu = True
+                break
+            
+            time.sleep(0.05)
+        
+        stdscr.nodelay(False)
+        if quit_to_menu:
+            return
 
     for idx, track in enumerate(normalized_tracks):
         track_duration = track_times[idx][2]
@@ -546,7 +602,33 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             stdscr.addstr(title_y + 6, 2, "└─────────────────┘", curses.color_pair(COLOR_YELLOW))
             stdscr.addstr(title_y + 4, 25, f"AVG dBFS: {avg_dbfs:+.2f}", curses.color_pair(COLOR_CYAN))
             stdscr.addstr(title_y + 5, 25, f"TRACK GAP: {track_gap}s", curses.color_pair(COLOR_CYAN))
-            stdscr.addstr(title_y + 8, 0, "[TRACKS]:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+            
+            # VU Meters - real audio levels from waveform analysis (below counter)
+            meter_y = title_y + 8
+            elapsed_ms = int(track_elapsed * 1000)
+            level_l, level_r = get_audio_level_at_time(track['audio_levels'], elapsed_ms)
+            stdscr.addstr(meter_y, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
+            draw_vu_meter(stdscr, meter_y + 1, 2, level_l, max_width=50, label="L")
+            stdscr.addstr(meter_y + 2, 0, " " * 78, curses.color_pair(COLOR_CYAN))  # Space between channels
+            draw_vu_meter(stdscr, meter_y + 3, 2, level_r, max_width=50, label="R")
+            stdscr.addstr(meter_y + 4, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
+            
+            # NOW PLAYING section (after VU meters)
+            play_y = meter_y + 6
+            stdscr.addstr(play_y, 0, "NOW PLAYING: ", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+            stdscr.addstr(f"{os.path.basename(track['path'])}", curses.color_pair(COLOR_YELLOW))
+            # Progress bar with duration time on the right
+            bar_len = 60
+            progress = min(int(bar_len * (track_elapsed / max(1, track_duration))), bar_len)
+            stdscr.addstr(play_y + 1, 0, "[", curses.color_pair(COLOR_CYAN))
+            stdscr.addstr("█" * progress, curses.color_pair(COLOR_GREEN))
+            stdscr.addstr("░" * (bar_len - progress), curses.color_pair(COLOR_BLUE))
+            stdscr.addstr("]", curses.color_pair(COLOR_CYAN))
+            stdscr.addstr(f" [{format_duration(track_elapsed)}/{format_duration(track_duration)}]", curses.color_pair(COLOR_GREEN))
+            
+            # Track list
+            tracks_y = play_y + 3
+            stdscr.addstr(tracks_y, 0, "[TRACKS]:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
             for i, t in enumerate(normalized_tracks):
                 wav_name = os.path.basename(t['path'])
                 start_time_track, end_time_track, duration = track_times[i]
@@ -555,7 +637,7 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
                 is_current = i == idx
                 marker = "▶▶" if is_current else "  "
                 color = COLOR_GREEN if is_current else COLOR_CYAN
-                line_y = title_y + 9 + (i * 3)
+                line_y = tracks_y + 1 + (i * 3)
                 stdscr.addstr(line_y, 0, marker, curses.color_pair(COLOR_GREEN) | curses.A_BOLD if is_current else curses.color_pair(COLOR_WHITE))
                 stdscr.addstr(f" {i+1:02d}. ", curses.color_pair(color))
                 stdscr.addstr(f"{wav_name}\n", curses.color_pair(COLOR_YELLOW) if is_current else curses.color_pair(COLOR_WHITE))
@@ -564,32 +646,16 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
                 stdscr.addstr(f"{counter_start:04d}", curses.color_pair(COLOR_YELLOW))
                 stdscr.addstr(" - ", curses.color_pair(color))
                 stdscr.addstr(f"{counter_end:04d}\n", curses.color_pair(COLOR_YELLOW))
-            play_y = title_y + 9 + (len(normalized_tracks) * 3) + 1
-            stdscr.addstr(play_y, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
-            stdscr.addstr(play_y + 1, 0, "NOW PLAYING: ", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
-            stdscr.addstr(f"{os.path.basename(track['path'])}", curses.color_pair(COLOR_YELLOW))
-            stdscr.addstr(play_y + 2, 0, f"[{format_duration(track_elapsed)}/{format_duration(track_duration)}]", curses.color_pair(COLOR_GREEN))
-            # Progress bar with VU meter style
-            bar_len = 60
-            progress = min(int(bar_len * (track_elapsed / max(1, track_duration))), bar_len)
-            stdscr.addstr(play_y + 3, 0, "[", curses.color_pair(COLOR_CYAN))
-            stdscr.addstr("█" * progress, curses.color_pair(COLOR_GREEN))
-            stdscr.addstr("░" * (bar_len - progress), curses.color_pair(COLOR_BLUE))
-            stdscr.addstr("]\n", curses.color_pair(COLOR_CYAN))
             
-            # VU Meters - real audio levels from waveform analysis
-            elapsed_ms = int(track_elapsed * 1000)
-            level_l, level_r = get_audio_level_at_time(track['audio_levels'], elapsed_ms)
-            stdscr.addstr(play_y + 4, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
-            draw_vu_meter(stdscr, play_y + 5, 2, level_l, max_width=50, label="L")
-            stdscr.addstr(play_y + 6, 0, " " * 78, curses.color_pair(COLOR_CYAN))  # Space between channels
-            draw_vu_meter(stdscr, play_y + 7, 2, level_r, max_width=50, label="R")
-            stdscr.addstr(play_y + 8, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
-            
-            stdscr.addstr(play_y + 9, 0, f"TOTAL: {format_duration(elapsed)}/{format_duration(total_time)}", curses.color_pair(COLOR_YELLOW))
-            stdscr.addstr(play_y + 11, 0, "Press ", curses.color_pair(COLOR_WHITE))
-            stdscr.addstr("Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
-            stdscr.addstr(" to quit to main menu.", curses.color_pair(COLOR_WHITE))
+            # Footer (with boundary checking)
+            footer_y = tracks_y + 1 + (len(normalized_tracks) * 3) + 1
+            max_y, max_x = stdscr.getmaxyx()
+            if footer_y < max_y - 4:
+                safe_addstr(stdscr, footer_y, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
+                safe_addstr(stdscr, footer_y + 1, 0, f"TOTAL: {format_duration(elapsed)}/{format_duration(total_time)}", curses.color_pair(COLOR_YELLOW))
+                safe_addstr(stdscr, footer_y + 3, 0, "Press ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, footer_y + 3, 6, "Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                safe_addstr(stdscr, footer_y + 3, 7, " to quit to main menu.", curses.color_pair(COLOR_WHITE))
             stdscr.refresh()
             
             last_counter = current_counter
@@ -720,7 +786,7 @@ def main_menu(folder):
                 # Footer info
                 footer_y = current_y + 1
                 total_duration_str = format_duration(total_selected_duration)
-                info_line = f"Total: {total_duration_str} | Gap: {TRACK_GAP_SECONDS}s | Max: {format_duration(TOTAL_DURATION_MINUTES * 60)}"
+                info_line = f"Total: {total_duration_str} | Leader: {LEADER_GAP_SECONDS}s | Gap: {TRACK_GAP_SECONDS}s | Max: {format_duration(TOTAL_DURATION_MINUTES * 60)}"
                 safe_addstr(stdscr, footer_y, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
                 safe_addstr(stdscr, footer_y + 1, 0, info_line, curses.color_pair(COLOR_CYAN))
                 
@@ -781,13 +847,13 @@ def main_menu(folder):
                 if not proceed:
                     continue
                 # Write tracklist file with unique timestamp
-                output_txt = write_deck_tracklist(normalized_tracks, TRACK_GAP_SECONDS, folder, COUNTER_RATE)
+                output_txt = write_deck_tracklist(normalized_tracks, TRACK_GAP_SECONDS, folder, COUNTER_RATE, LEADER_GAP_SECONDS)
                 # 10-second prep countdown (cancellable)
                 ok = prep_countdown(stdscr, seconds=10)
                 if not ok:
                     continue
                 # Start deck recording/playback
-                playback_deck_recording(stdscr, normalized_tracks, TRACK_GAP_SECONDS, TOTAL_DURATION_MINUTES * 60)
+                playback_deck_recording(stdscr, normalized_tracks, TRACK_GAP_SECONDS, TOTAL_DURATION_MINUTES * 60, LEADER_GAP_SECONDS)
                 continue
 
     curses.wrapper(draw_menu)
