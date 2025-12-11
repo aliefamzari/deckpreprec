@@ -56,11 +56,7 @@ import time
 import curses
 import random
 import math
-import struct
-import threading
 from pydub import AudioSegment
-import pyaudio
-import numpy as np
 
 # --- Argument parsing ---
 parser = argparse.ArgumentParser(description="Audio Player for Tape Recording")
@@ -203,83 +199,72 @@ def draw_vu_meter(stdscr, y, x, level, max_width=40, label=""):
     safe_addstr(stdscr, y, current_x + max_width, "]", curses.color_pair(COLOR_CYAN))
 
 
-# Global audio level variables for real-time capture
-audio_level_l = 0.0
-audio_level_r = 0.0
-audio_monitor_active = False
-
-def calculate_rms(audio_data):
+def analyze_audio_levels(audio_segment, chunk_duration_ms=50):
     """
-    Calculate RMS (Root Mean Square) from audio samples
-    Returns normalized level 0.0-1.0
+    Analyze audio file and pre-compute RMS levels for L/R channels
+    Returns list of tuples: [(time_ms, level_l, level_r), ...]
     """
-    if len(audio_data) == 0:
-        return 0.0
+    levels = []
+    duration_ms = len(audio_segment)
     
-    # Convert to numpy array and calculate RMS
-    samples = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32)
-    rms = np.sqrt(np.mean(samples**2))
-    
-    # Normalize to 0-1 range
-    # 32768 is max for 16-bit audio, but typical normalized audio peaks around 20000-25000
-    # Using linear scale with appropriate headroom
-    normalized = min(1.0, rms / 20000.0)
-    return normalized
-
-
-def audio_monitor_thread(audio_file_path):
-    """
-    Monitor audio playback in real-time using PyAudio
-    Captures system audio and calculates L/R levels
-    """
-    global audio_level_l, audio_level_r, audio_monitor_active
-    
+    # Split into stereo channels
     try:
-        # Load audio file to get properties
-        audio = AudioSegment.from_file(audio_file_path)
-        sample_rate = audio.frame_rate
-        channels = audio.channels
+        channels = audio_segment.split_to_mono()
+        if len(channels) == 2:
+            left_channel, right_channel = channels
+        else:
+            # Mono audio - duplicate for both channels
+            left_channel = right_channel = channels[0]
+    except:
+        # Fallback for mono
+        left_channel = right_channel = audio_segment
+    
+    # Analyze in chunks
+    for i in range(0, duration_ms, chunk_duration_ms):
+        chunk_l = left_channel[i:i + chunk_duration_ms]
+        chunk_r = right_channel[i:i + chunk_duration_ms]
         
-        # Initialize PyAudio
-        p = pyaudio.PyAudio()
+        # Get RMS (root mean square) for volume level
+        rms_l = chunk_l.rms if len(chunk_l) > 0 else 0
+        rms_r = chunk_r.rms if len(chunk_r) > 0 else 0
         
-        # Open audio file stream with ffmpeg
-        chunk_size = 1024
-        proc = subprocess.Popen(
-            ['ffmpeg', '-i', audio_file_path, '-f', 's16le', '-acodec', 'pcm_s16le',
-             '-ar', str(sample_rate), '-ac', str(channels), '-'],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            bufsize=chunk_size * channels * 2
-        )
+        # Normalize RMS to 0.0-1.0 range
+        # Typical RMS range: 0-20000 for 16-bit audio
+        # Using square root for perceptual loudness
+        max_rms = 8000  # Adjusted for better sensitivity
+        level_l = min(1.0, (rms_l / max_rms) ** 0.5)
+        level_r = min(1.0, (rms_r / max_rms) ** 0.5)
         
-        while audio_monitor_active:
-            # Read audio chunk
-            audio_data = proc.stdout.read(chunk_size * channels * 2)
-            if not audio_data:
-                break
-            
-            if channels == 2:
-                # Separate L/R channels
-                samples = np.frombuffer(audio_data, dtype=np.int16)
-                left_samples = samples[0::2]
-                right_samples = samples[1::2]
-                
-                audio_level_l = calculate_rms(left_samples.tobytes())
-                audio_level_r = calculate_rms(right_samples.tobytes())
-            else:
-                # Mono - use same level for both
-                level = calculate_rms(audio_data)
-                audio_level_l = audio_level_r = level
-        
-        proc.terminate()
-        p.terminate()
-    except Exception as e:
-        # Silent fail - fall back to zero levels
-        pass
-    finally:
-        audio_level_l = 0.0
-        audio_level_r = 0.0
+        levels.append((i, level_l, level_r))
+    
+    return levels
+
+
+def get_audio_level_at_time(levels, elapsed_ms):
+    """
+    Get interpolated audio level at specific time from pre-analyzed data
+    Returns (level_l, level_r) tuple
+    """
+    if not levels:
+        return 0.0, 0.0
+    
+    # Find nearest chunk
+    for i, (time_ms, level_l, level_r) in enumerate(levels):
+        if elapsed_ms <= time_ms:
+            if i == 0:
+                return level_l, level_r
+            # Linear interpolation between chunks
+            prev_time, prev_l, prev_r = levels[i - 1]
+            time_diff = time_ms - prev_time
+            if time_diff > 0:
+                factor = (elapsed_ms - prev_time) / time_diff
+                interp_l = prev_l + (level_l - prev_l) * factor
+                interp_r = prev_r + (level_r - prev_r) * factor
+                return interp_l, interp_r
+            return level_l, level_r
+    
+    # Return last level if beyond end
+    return levels[-1][1], levels[-1][2]
 
 
 def get_ffprobe_info(filepath):
@@ -349,8 +334,10 @@ def normalize_tracks(tracks, folder, stdscr=None):
             if stdscr:
                 stdscr.clear()
                 safe_addstr(stdscr, 0, 0, f"Loading {i+1}/{len(tracks)}: {track['name']}", curses.color_pair(COLOR_YELLOW))
+                safe_addstr(stdscr, 1, 0, "Analyzing waveform...", curses.color_pair(COLOR_GREEN))
                 stdscr.refresh()
-            normalized_tracks.append({'name': track['name'], 'audio': audio, 'path': norm_path, 'dBFS': audio.dBFS})
+            audio_levels = analyze_audio_levels(audio, chunk_duration_ms=50)
+            normalized_tracks.append({'name': track['name'], 'audio': audio, 'path': norm_path, 'dBFS': audio.dBFS, 'audio_levels': audio_levels})
             continue
         # Show progress in curses (if provided)
         if stdscr:
@@ -361,7 +348,11 @@ def normalize_tracks(tracks, folder, stdscr=None):
         audio = AudioSegment.from_file(src_path)
         normalized_audio = audio.normalize()
         normalized_audio.export(norm_path, format="wav")
-        normalized_tracks.append({'name': track['name'], 'audio': normalized_audio, 'path': norm_path, 'dBFS': normalized_audio.dBFS})
+        if stdscr:
+            safe_addstr(stdscr, 2, 0, "Analyzing waveform...", curses.color_pair(COLOR_GREEN))
+            stdscr.refresh()
+        audio_levels = analyze_audio_levels(normalized_audio, chunk_duration_ms=50)
+        normalized_tracks.append({'name': track['name'], 'audio': normalized_audio, 'path': norm_path, 'dBFS': normalized_audio.dBFS, 'audio_levels': audio_levels})
     return normalized_tracks
 
 
@@ -478,15 +469,6 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
     for idx, track in enumerate(normalized_tracks):
         track_duration = track_times[idx][2]
         track_start_time = time.time()
-        
-        # Start real-time audio monitoring thread
-        global audio_monitor_active, audio_level_l, audio_level_r
-        audio_monitor_active = True
-        audio_level_l = 0.0
-        audio_level_r = 0.0
-        monitor_thread = threading.Thread(target=audio_monitor_thread, args=(track['path'],), daemon=True)
-        monitor_thread.start()
-        
         # launch ffplay for each track
         proc = subprocess.Popen(["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", track['path']])
         stdscr.nodelay(True)
@@ -554,10 +536,12 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             stdscr.addstr("░" * (bar_len - progress), curses.color_pair(COLOR_BLUE))
             stdscr.addstr("]\n", curses.color_pair(COLOR_CYAN))
             
-            # VU Meters - real-time audio levels from PyAudio capture
+            # VU Meters - real audio levels from waveform analysis
+            elapsed_ms = int(track_elapsed * 1000)
+            level_l, level_r = get_audio_level_at_time(track['audio_levels'], elapsed_ms)
             stdscr.addstr(play_y + 4, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
-            draw_vu_meter(stdscr, play_y + 5, 2, audio_level_l, max_width=50, label="L")
-            draw_vu_meter(stdscr, play_y + 6, 2, audio_level_r, max_width=50, label="R")
+            draw_vu_meter(stdscr, play_y + 5, 2, level_l, max_width=50, label="L")
+            draw_vu_meter(stdscr, play_y + 6, 2, level_r, max_width=50, label="R")
             stdscr.addstr(play_y + 7, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
             
             stdscr.addstr(play_y + 8, 0, f"TOTAL: {format_duration(elapsed)}/{format_duration(total_time)}", curses.color_pair(COLOR_YELLOW))
@@ -571,19 +555,13 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             
             key = stdscr.getch()
             if key in (ord('q'), ord('Q')):
-                audio_monitor_active = False
                 if proc.poll() is None:
                     proc.terminate()
                 quit_to_menu = True
                 break
             if proc.poll() is not None:
-                audio_monitor_active = False
                 break
             time.sleep(0.05)  # Reduced from 0.1 to make VU meters more responsive
-        
-        # Stop audio monitoring
-        audio_monitor_active = False
-        time.sleep(0.1)  # Give thread time to clean up
         stdscr.nodelay(False)
         if quit_to_menu:
             return
