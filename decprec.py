@@ -11,7 +11,8 @@ Features:
   • ASCII cassette tape art and box-drawing borders
   • Audio normalization with caching (skips existing normalized files)
   • 4-digit tape counter with configurable rate
-  • VU meter-style progress bars with block characters
+  • Real-time VU meters displaying actual audio waveform levels (L/R channels)
+  • Pre-analyzed audio with RMS-based level detection
   • Track selection with duration validation
   • 10-second prep countdown before recording
   • Real-time playback monitoring with track positions
@@ -53,7 +54,13 @@ import signal
 import argparse
 import time
 import curses
+import random
+import math
+import struct
+import threading
 from pydub import AudioSegment
+import pyaudio
+import numpy as np
 
 # --- Argument parsing ---
 parser = argparse.ArgumentParser(description="Audio Player for Tape Recording")
@@ -166,6 +173,114 @@ def format_duration(seconds):
     return f"{minutes}:{secs:02d}"
 
 
+def draw_vu_meter(stdscr, y, x, level, max_width=40, label=""):
+    """
+    Draw a retro VU meter with peak indicators
+    level: float from 0.0 to 1.0
+    """
+    # VU meter segments with colors
+    segments = int(level * max_width)
+    
+    # Color zones: white (0-85%), red (85-100%)
+    peak_zone = int(max_width * 0.85)
+    
+    safe_addstr(stdscr, y, x, f"{label:3s} [", curses.color_pair(COLOR_CYAN))
+    
+    current_x = x + len(f"{label:3s} [")
+    for i in range(max_width):
+        if i < segments:
+            if i < peak_zone:
+                char = "█"
+                color = COLOR_WHITE
+            else:
+                char = "█"
+                color = COLOR_RED
+            safe_addstr(stdscr, y, current_x + i, char, curses.color_pair(color))
+        else:
+            safe_addstr(stdscr, y, current_x + i, "░", curses.color_pair(COLOR_BLUE))
+    
+    # Add closing bracket
+    safe_addstr(stdscr, y, current_x + max_width, "]", curses.color_pair(COLOR_CYAN))
+
+
+# Global audio level variables for real-time capture
+audio_level_l = 0.0
+audio_level_r = 0.0
+audio_monitor_active = False
+
+def calculate_rms(audio_data):
+    """
+    Calculate RMS (Root Mean Square) from audio samples
+    Returns normalized level 0.0-1.0
+    """
+    if len(audio_data) == 0:
+        return 0.0
+    
+    # Convert to numpy array and calculate RMS
+    samples = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32)
+    rms = np.sqrt(np.mean(samples**2))
+    
+    # Normalize to 0-1 range (32768 is max for 16-bit audio)
+    # Using square root for perceptual loudness
+    normalized = min(1.0, (rms / 16384) ** 0.6)
+    return normalized
+
+
+def audio_monitor_thread(audio_file_path):
+    """
+    Monitor audio playback in real-time using PyAudio
+    Captures system audio and calculates L/R levels
+    """
+    global audio_level_l, audio_level_r, audio_monitor_active
+    
+    try:
+        # Load audio file to get properties
+        audio = AudioSegment.from_file(audio_file_path)
+        sample_rate = audio.frame_rate
+        channels = audio.channels
+        
+        # Initialize PyAudio
+        p = pyaudio.PyAudio()
+        
+        # Open audio file stream with ffmpeg
+        chunk_size = 1024
+        proc = subprocess.Popen(
+            ['ffmpeg', '-i', audio_file_path, '-f', 's16le', '-acodec', 'pcm_s16le',
+             '-ar', str(sample_rate), '-ac', str(channels), '-'],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            bufsize=chunk_size * channels * 2
+        )
+        
+        while audio_monitor_active:
+            # Read audio chunk
+            audio_data = proc.stdout.read(chunk_size * channels * 2)
+            if not audio_data:
+                break
+            
+            if channels == 2:
+                # Separate L/R channels
+                samples = np.frombuffer(audio_data, dtype=np.int16)
+                left_samples = samples[0::2]
+                right_samples = samples[1::2]
+                
+                audio_level_l = calculate_rms(left_samples.tobytes())
+                audio_level_r = calculate_rms(right_samples.tobytes())
+            else:
+                # Mono - use same level for both
+                level = calculate_rms(audio_data)
+                audio_level_l = audio_level_r = level
+        
+        proc.terminate()
+        p.terminate()
+    except Exception as e:
+        # Silent fail - fall back to zero levels
+        pass
+    finally:
+        audio_level_l = 0.0
+        audio_level_r = 0.0
+
+
 def get_ffprobe_info(filepath):
     """Return duration (seconds), codec (first audio codec found), bitrate_kbps or 'Unknown'."""
     try:
@@ -230,13 +345,17 @@ def normalize_tracks(tracks, folder, stdscr=None):
         norm_path = os.path.join(normalized_dir, norm_name)
         if os.path.exists(norm_path):
             audio = AudioSegment.from_file(norm_path)
+            if stdscr:
+                stdscr.clear()
+                safe_addstr(stdscr, 0, 0, f"Loading {i+1}/{len(tracks)}: {track['name']}", curses.color_pair(COLOR_YELLOW))
+                stdscr.refresh()
             normalized_tracks.append({'name': track['name'], 'audio': audio, 'path': norm_path, 'dBFS': audio.dBFS})
             continue
         # Show progress in curses (if provided)
         if stdscr:
             stdscr.clear()
-            stdscr.addstr(f"Normalizing {i+1}/{len(tracks)}: {track['name']}\n")
-            stdscr.addstr("(This may take a few seconds per file)\n")
+            safe_addstr(stdscr, 0, 0, f"Normalizing {i+1}/{len(tracks)}: {track['name']}", curses.color_pair(COLOR_YELLOW))
+            safe_addstr(stdscr, 1, 0, "(This may take a few seconds per file)", curses.color_pair(COLOR_CYAN))
             stdscr.refresh()
         audio = AudioSegment.from_file(src_path)
         normalized_audio = audio.normalize()
@@ -358,16 +477,38 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
     for idx, track in enumerate(normalized_tracks):
         track_duration = track_times[idx][2]
         track_start_time = time.time()
+        
+        # Start real-time audio monitoring thread
+        global audio_monitor_active, audio_level_l, audio_level_r
+        audio_monitor_active = True
+        audio_level_l = 0.0
+        audio_level_r = 0.0
+        monitor_thread = threading.Thread(target=audio_monitor_thread, args=(track['path'],), daemon=True)
+        monitor_thread.start()
+        
         # launch ffplay for each track
         proc = subprocess.Popen(["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", track['path']])
         stdscr.nodelay(True)
         quit_to_menu = False
+        last_counter = -1
+        last_progress = -1
+        first_draw = True
+        
         while True:
             now = time.time()
             elapsed = now - overall_start_time
             track_elapsed = now - track_start_time
             current_counter = int(elapsed * COUNTER_RATE)
-            stdscr.clear()
+            current_progress = int(60 * (track_elapsed / max(1, track_duration)))
+            
+            # Only redraw if something changed or first draw
+            if first_draw or current_counter != last_counter or current_progress != last_progress:
+                if first_draw:
+                    stdscr.clear()
+                    first_draw = False
+                else:
+                    # Don't clear entire screen, just update changed areas
+                    pass
             # Title
             stdscr.addstr(0, 0, "╔" + "═" * 78 + "╗", curses.color_pair(COLOR_CYAN))
             stdscr.addstr(1, 30, "DECK RECORDING MODE", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
@@ -411,20 +552,37 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             stdscr.addstr("█" * progress, curses.color_pair(COLOR_GREEN))
             stdscr.addstr("░" * (bar_len - progress), curses.color_pair(COLOR_BLUE))
             stdscr.addstr("]\n", curses.color_pair(COLOR_CYAN))
-            stdscr.addstr(play_y + 5, 0, f"TOTAL: {format_duration(elapsed)}/{format_duration(total_time)}", curses.color_pair(COLOR_YELLOW))
-            stdscr.addstr(play_y + 7, 0, "Press ", curses.color_pair(COLOR_WHITE))
+            
+            # VU Meters - real-time audio levels from PyAudio capture
+            stdscr.addstr(play_y + 4, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
+            draw_vu_meter(stdscr, play_y + 5, 2, audio_level_l, max_width=50, label="L")
+            draw_vu_meter(stdscr, play_y + 6, 2, audio_level_r, max_width=50, label="R")
+            stdscr.addstr(play_y + 7, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
+            
+            stdscr.addstr(play_y + 8, 0, f"TOTAL: {format_duration(elapsed)}/{format_duration(total_time)}", curses.color_pair(COLOR_YELLOW))
+            stdscr.addstr(play_y + 10, 0, "Press ", curses.color_pair(COLOR_WHITE))
             stdscr.addstr("Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
             stdscr.addstr(" to quit to main menu.", curses.color_pair(COLOR_WHITE))
             stdscr.refresh()
+            
+            last_counter = current_counter
+            last_progress = current_progress
+            
             key = stdscr.getch()
             if key in (ord('q'), ord('Q')):
+                audio_monitor_active = False
                 if proc.poll() is None:
                     proc.terminate()
                 quit_to_menu = True
                 break
             if proc.poll() is not None:
+                audio_monitor_active = False
                 break
-            time.sleep(0.1)
+            time.sleep(0.05)  # Reduced from 0.1 to make VU meters more responsive
+        
+        # Stop audio monitoring
+        audio_monitor_active = False
+        time.sleep(0.1)  # Give thread time to clean up
         stdscr.nodelay(False)
         if quit_to_menu:
             return

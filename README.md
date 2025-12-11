@@ -1,35 +1,35 @@
-# ?? Retro 80s Tape Deck Recording CLI
+﻿# 📼 Retro 80s Tape Deck Recording CLI
 
 A nostalgic cassette tape recording utility with authentic 80s aesthetics. Perfect for audiophiles recording curated playlists to physical cassette tapes with professional-quality preparation and timing control.
 
 ```
-  ?????????????????????????????????
-  ?  ???????         ???????      ?
-  ?  ? ??? ?    A    ? ??? ?      ?
-  ?  ???????         ???????      ?
-  ?????????????????????????????????
+  ╔═══════════════════════════════╗
+  ║  ┌─────┐         ┌─────┐      ║
+  ║  │ ∞∞∞ │    A    │ ∞∞∞ │      ║
+  ║  └─────┘         └─────┘      ║
+  ╚═══════════════════════════════╝
 ```
 
-## ? Features
+## ✨ Features
 
-- ?? **Retro 80s UI** - Neon colors, ASCII art, and authentic cassette tape aesthetics
-- ?? **Audio Normalization** - Consistent volume levels across all tracks (cached for speed)
-- ?? **4-Digit Tape Counter** - Digital counter with configurable rate matching your deck
-- ?? **VU Meter Progress Bars** - Real-time visual feedback during recording
-- ?? **Duration Management** - Ensures tracks fit within cassette tape limits
-- ?? **Track Preview** - Listen before recording
-- ?? **Tracklist Generation** - Creates reference file with timestamps and counter positions
-- ?? **Configurable Track Gaps** - Set silence between tracks
-- ?? **10-Second Prep Countdown** - Time to press record on your deck
+- 🎨 **Retro 80s UI** - Neon colors, ASCII art, and authentic cassette tape aesthetics
+- 🔊 **Audio Normalization** - Consistent volume levels across all tracks (cached for speed)
+- 📟 **4-Digit Tape Counter** - Digital counter with configurable rate matching your deck
+- 📊 **VU Meter Progress Bars** - Real-time visual feedback during recording
+- ⏱️ **Duration Management** - Ensures tracks fit within cassette tape limits
+- 🎵 **Track Preview** - Listen before recording
+- 📝 **Tracklist Generation** - Creates reference file with timestamps and counter positions
+- ⏸️ **Configurable Track Gaps** - Set silence between tracks
+- 🎬 **10-Second Prep Countdown** - Time to press record on your deck
 
-## ?? Requirements
+## 📋 Requirements
 
 - Python 3.12+ (Python 3.13 not supported due to pydub compatibility)
 - FFmpeg, FFprobe, FFplay
 - pydub library
 - curses (windows-curses on Windows)
 
-## ?? Installation
+## 🚀 Installation
 
 ### Option 1: Linux (Recommended)
 
@@ -87,7 +87,7 @@ See [WSL_SETUP.md](WSL_SETUP.md) for detailed WSL instructions.
 
 ### Option 3: Windows (Native - Limited Support)
 
-**?? Note:** Script is designed for Linux. Windows native support is limited.
+**⚠️ Note:** Script is designed for Linux. Windows native support is limited.
 
 ```powershell
 # Install Python 3.12 (NOT 3.13)
@@ -111,7 +111,7 @@ pip install windows-curses pydub
 python decprec.py
 ```
 
-## ?? Usage
+## 📖 Usage
 
 ### Basic Usage
 
@@ -139,25 +139,25 @@ MP3, WAV, FLAC, WebM, M4A, AAC, OGG
 
 ```
 deckpreprec/
-??? decprec.py
-??? tracks/                    # Your audio files go here
-?   ??? song1.mp3
-?   ??? song2.wav
-?   ??? song3.flac
-?   ??? normalized/            # Auto-generated normalized files
-?   ?   ??? song1.mp3.normalized.wav
-?   ?   ??? song2.wav.normalized.wav
-?   ??? deck_tracklist.txt     # Auto-generated reference file
-??? venv/                      # Virtual environment
-??? README.md
+├── decprec.py
+├── tracks/                    # Your audio files go here
+│   ├── song1.mp3
+│   ├── song2.wav
+│   ├── song3.flac
+│   ├── normalized/            # Auto-generated normalized files
+│   │   ├── song1.mp3.normalized.wav
+│   │   └── song2.wav.normalized.wav
+│   └── deck_tracklist.txt     # Auto-generated reference file
+├── venv/                      # Virtual environment
+└── README.md
 ```
 
-## ?? Keyboard Controls
+## 🎹 Keyboard Controls
 
 ### Main Menu
 | Key | Action |
 |-----|--------|
-| `?` / `?` | Navigate tracks |
+| `↑` / `↓` | Navigate tracks |
 | `Space` | Select/deselect track |
 | `P` | Preview track |
 | `X` | Stop preview |
@@ -169,7 +169,7 @@ deckpreprec/
 |-----|--------|
 | `Q` | Return to main menu |
 
-## ?? Workflow
+## 🎯 Workflow
 
 1. **Launch Application**
    ```bash
@@ -203,7 +203,7 @@ deckpreprec/
      - Counter positions
      - Track durations
 
-## ?? 80s Aesthetic Features
+## 🎨 80s Aesthetic Features
 
 - **Neon Color Scheme:** Cyan, magenta, yellow, green
 - **ASCII Cassette Art:** Authentic tape graphics
@@ -212,7 +212,7 @@ deckpreprec/
 - **Retro Box Drawing:** Double-line borders and frames
 - **Blinking Countdown:** 80s digital clock effect
 
-## ?? Configuration Tips
+## 📝 Configuration Tips
 
 ### Tape Counter Rate
 
@@ -238,7 +238,7 @@ python decprec.py --duration 45
 python decprec.py --duration 60
 ```
 
-## ?? Troubleshooting
+## 🐛 Troubleshooting
 
 ### Python 3.13 Compatibility Error
 ```
@@ -261,15 +261,15 @@ RuntimeWarning: Couldn't find ffmpeg or avconv
 pip install windows-curses
 ```
 
-## ?? License
+## 📄 License
 
 MIT License
 
-## ?? Contributing
+## 🤝 Contributing
 
 Contributions welcome! Feel free to submit issues or pull requests.
 
-## ?? Acknowledgments
+## 🙏 Acknowledgments
 
 - Inspired by classic tape deck recording workflows
 - 80s home recording studio aesthetics
@@ -277,4 +277,4 @@ Contributions welcome! Feel free to submit issues or pull requests.
 
 ---
 
-**Made with ?? for cassette tape enthusiasts**
+**Made with 💜 for cassette tape enthusiasts**
