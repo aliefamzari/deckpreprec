@@ -1,12 +1,49 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
-Improved Tape Deck Recording CLI
-- Normalizes selected tracks only when user presses Enter.
-- Skips normalization if a normalized .wav exists.
-- After normalization completes, shows a 10-second prep countdown before playback/recording.
-- Better ffprobe error handling and clearer duration math.
-- Removed pygame (not used).
-Usage: python3 tape_recorder_improved.py --folder ./tracks --track-gap 5 --duration 60
+Retro 80s Tape Deck Recording CLI
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+A nostalgic tape deck recording utility with 80s-inspired aesthetics for
+preparing and recording audio tracks to cassette tapes.
+
+Features:
+  • Interactive curses-based UI with retro color scheme (cyan, magenta, yellow)
+  • ASCII cassette tape art and box-drawing borders
+  • Audio normalization with caching (skips existing normalized files)
+  • 4-digit tape counter with configurable rate
+  • VU meter-style progress bars with block characters
+  • Track selection with duration validation
+  • 10-second prep countdown before recording
+  • Real-time playback monitoring with track positions
+  • Generates detailed tracklist reference file with counter positions
+
+Usage:
+  python3 decprec.py --folder ./tracks --track-gap 5 --duration 60 --counter-rate 1.0
+
+Arguments:
+  --folder        Path to audio tracks directory (default: ./tracks)
+  --track-gap     Gap between tracks in seconds (default: 5)
+  --duration      Maximum tape duration in minutes (default: 60)
+  --counter-rate  Tape counter increments per second (default: 1.0)
+
+Keyboard Controls:
+  Main Menu:
+    Up/Down       Navigate tracks
+    Space         Select/deselect track
+    P             Preview track
+    X             Stop preview
+    Enter         Normalize and start recording
+    Q             Quit
+  
+  Recording Mode:
+    Q             Return to main menu
+
+Supported Formats: MP3, WAV, FLAC, WebM, M4A, AAC, OGG
+
+Requirements: ffmpeg, ffprobe, ffplay, pydub
+
+Author: Improved by GitHub Copilot
+License: MIT
 """
 
 import os
@@ -23,11 +60,13 @@ parser = argparse.ArgumentParser(description="Audio Player for Tape Recording")
 parser.add_argument("--track-gap", type=int, default=5, help="Gap between tracks in seconds (default: 5)")
 parser.add_argument("--duration", type=int, default=60, help="Maximum tape duration in minutes (default: 60)")
 parser.add_argument("--folder", type=str, default="./tracks", help="Folder with audio tracks")
+parser.add_argument("--counter-rate", type=float, default=1.0, help="Tape counter increments per second (default: 1.0)")
 args = parser.parse_args()
 
 TRACK_GAP_SECONDS = args.track_gap
 TOTAL_DURATION_MINUTES = args.duration
 TARGET_FOLDER = args.folder
+COUNTER_RATE = args.counter_rate
 
 # Add /usr/sbin to PATH for ffmpeg/ffprobe/ffplay if present
 os.environ["PATH"] += os.pathsep + "/usr/sbin"
@@ -36,6 +75,87 @@ AudioSegment.converter = "/usr/bin/ffmpeg"
 # Global ffplay process used for preview playback (from main menu)
 ffplay_proc = None
 
+# Color pairs (initialized in curses)
+COLOR_CYAN = 1
+COLOR_MAGENTA = 2
+COLOR_YELLOW = 3
+COLOR_GREEN = 4
+COLOR_RED = 5
+COLOR_BLUE = 6
+COLOR_WHITE = 7
+
+def safe_addstr(stdscr, y, x, text, attr=0):
+    """Safely add string to screen with boundary checking"""
+    try:
+        max_y, max_x = stdscr.getmaxyx()
+        if y < max_y - 1 and x < max_x - 1:
+            # Truncate text if it would exceed screen width
+            available_width = max_x - x - 1
+            if len(text) > available_width:
+                text = text[:available_width]
+            stdscr.addstr(y, x, text, attr)
+    except:
+        pass
+
+def init_colors():
+    """Initialize 80s-style color scheme"""
+    if curses.has_colors():
+        curses.start_color()
+        curses.init_pair(1, curses.COLOR_CYAN, curses.COLOR_BLACK)
+        curses.init_pair(2, curses.COLOR_MAGENTA, curses.COLOR_BLACK)
+        curses.init_pair(3, curses.COLOR_YELLOW, curses.COLOR_BLACK)
+        curses.init_pair(4, curses.COLOR_GREEN, curses.COLOR_BLACK)
+        curses.init_pair(5, curses.COLOR_RED, curses.COLOR_BLACK)
+        curses.init_pair(6, curses.COLOR_BLUE, curses.COLOR_BLACK)
+        curses.init_pair(7, curses.COLOR_WHITE, curses.COLOR_BLACK)
+
+def draw_retro_border(stdscr, y, x, width, title=""):
+    """Draw 80s-style border with optional title"""
+    try:
+        stdscr.addstr(y, x, "╔" + "═" * (width - 2) + "╗", curses.color_pair(COLOR_CYAN))
+        if title:
+            title_x = x + (width - len(title)) // 2
+            stdscr.addstr(y, title_x - 1, "═", curses.color_pair(COLOR_CYAN))
+            stdscr.addstr(y, title_x, title, curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+            stdscr.addstr(y, title_x + len(title), "═", curses.color_pair(COLOR_CYAN))
+    except:
+        pass
+
+def draw_cassette_art(stdscr, y, x):
+    """Draw ASCII cassette tape art from cassette.txt"""
+    art = [
+        " /=======================================================q\\",
+        "|:@-                                                     #+|",
+        "| '   /==============================================\\     |",
+        "|   ./                                                \\,   |",
+        "|  :'                                                  `;  |",
+        "|  |                                                    |  |",
+        "|  |                                                    |  |",
+        "|  |                                                    |  |",
+        "|  |          ._____________________________,           |  |",
+        "|  |        ./Lm=\\_   mmmmmr======qmm   _m=\\Jq          |  |",
+        "|  |        /W'`' *b  ######      W##  d'`' *bt         |  |",
+        "|  |       :\\@'    M, ######|     ### :@!    V/,        |  |",
+        "|  |        PW     @! ######b_____### `W_    @@         |  |",
+        "|  |        |/#_,LZ! .d_!!! t|,!! !!d  !@L,mZt!         |  |",
+        "|  |         `=\\XX___JXX____JXL_____X_____J+='          |  |",
+        "|  |                                                    |  |",
+        "|  |                                                    |  |",
+        "#  |                                                    |  D,",
+        "#  |                                                    |  ||",
+        "#  `~~~~~~~XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX7~~~~~~~~'  ||",
+        "#         /                                    |           ||",
+        "#         |                 |#-                 |          ||",
+        "#        :'                  '                  t          ||",
+        "M        |          /~|              |~|        |          @",
+        "|.L      /    |~\\   \\=!              !=!  :~Y,   |       jL|",
+        "!(KL_____b____JGL__________________________GK____G_______8*"
+    ]
+    for i, line in enumerate(art):
+        try:
+            stdscr.addstr(y + i, x, line, curses.color_pair(COLOR_MAGENTA))
+        except:
+            pass
 
 def format_duration(seconds):
     if seconds is None or seconds == "Unknown":
@@ -125,32 +245,44 @@ def normalize_tracks(tracks, folder, stdscr=None):
     return normalized_tracks
 
 
-def write_deck_tracklist(normalized_tracks, track_gap, output_path):
+def write_deck_tracklist(normalized_tracks, track_gap, output_path, counter_rate):
     lines = []
     current_time = 0
     for idx, track in enumerate(normalized_tracks):
         start_time = current_time
         duration = int(round(track['audio'].duration_seconds))
         end_time = start_time + duration
+        counter_start = int(start_time * counter_rate)
+        counter_end = int(end_time * counter_rate)
         lines.append(
             f"{idx+1:02d}. {track['name']}\n"
-            f"    Start: {format_duration(start_time)}   End: {format_duration(end_time)}   Duration: {format_duration(duration)}"
+            f"    Start: {format_duration(start_time)}   End: {format_duration(end_time)}   Duration: {format_duration(duration)}\n"
+            f"    Counter: {counter_start:04d} - {counter_end:04d}"
         )
         current_time = end_time + (track_gap if idx < len(normalized_tracks)-1 else 0)
     with open(output_path, "w") as f:
         f.write("Tape Deck Tracklist Reference\n")
         f.write("="*40 + "\n")
+        f.write(f"Counter Rate: {counter_rate} counts/second\n\n")
         for line in lines:
             f.write(line + "\n")
 
 
 def show_normalization_summary(stdscr, normalized_tracks):
     stdscr.clear()
-    stdscr.addstr("Normalization complete!\n\n")
-    stdscr.addstr("Track list and dBFS levels:\n")
+    stdscr.refresh()
+    stdscr.erase()
+    safe_addstr(stdscr, 0, 0, "═" * 70, curses.color_pair(COLOR_CYAN))
+    safe_addstr(stdscr, 1, 20, "NORMALIZATION COMPLETE", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+    safe_addstr(stdscr, 2, 0, "═" * 70, curses.color_pair(COLOR_CYAN))
+    safe_addstr(stdscr, 4, 0, "TRACK LIST AND dBFS LEVELS:", curses.color_pair(COLOR_YELLOW))
     for i, track in enumerate(normalized_tracks):
-        stdscr.addstr(f"{i+1}. {track['name']} - dBFS: {track['dBFS']:.2f}\n")
-    stdscr.addstr("\nPress Enter to start the 10-second deck prep countdown, or Q to cancel and return to menu...\n")
+        track_line = f"  {i+1:02d}. {track['name']} - dBFS: {track['dBFS']:.2f}"
+        safe_addstr(stdscr, 5 + i, 0, track_line, curses.color_pair(COLOR_CYAN))
+    
+    footer_y = 6 + len(normalized_tracks)
+    safe_addstr(stdscr, footer_y, 0, "─" * 70, curses.color_pair(COLOR_CYAN))
+    safe_addstr(stdscr, footer_y + 1, 0, "Press ENTER to start prep countdown, or Q to cancel...", curses.color_pair(COLOR_WHITE))
     stdscr.refresh()
     while True:
         key = stdscr.getch()
@@ -163,19 +295,45 @@ def show_normalization_summary(stdscr, normalized_tracks):
 def prep_countdown(stdscr, seconds=10):
     """Show a cancellable countdown. Return True to proceed, False to cancel."""
     stdscr.nodelay(True)
+    max_y, max_x = stdscr.getmaxyx()
+    
     for s in range(seconds, 0, -1):
+        # Aggressive clearing
+        stdscr.erase()
         stdscr.clear()
-        stdscr.addstr(f"Preparing deck for recording... {s} seconds remaining\n")
-        stdscr.addstr("Press Q to cancel and return to menu.\n")
+        stdscr.refresh()
+        
+        # Simple countdown without cassette art to avoid overlap
+        countdown_y = max_y // 2 - 3
+        box_width = min(70, max_x - 2)
+        
+        # Draw top border
+        safe_addstr(stdscr, countdown_y, 0, "╔" + "═" * (box_width - 2) + "╗", curses.color_pair(COLOR_MAGENTA))
+        
+        # Draw countdown text centered in box
+        count_str = f"DECK PREP COUNTDOWN: {s:02d}"
+        x_pos = max(1, (box_width - len(count_str)) // 2)
+        safe_addstr(stdscr, countdown_y + 1, 0, "║" + " " * (box_width - 2) + "║", curses.color_pair(COLOR_MAGENTA))
+        safe_addstr(stdscr, countdown_y + 1, x_pos, count_str, curses.color_pair(COLOR_YELLOW) | curses.A_BOLD | curses.A_BLINK)
+        
+        # Draw bottom border
+        safe_addstr(stdscr, countdown_y + 2, 0, "╚" + "═" * (box_width - 2) + "╝", curses.color_pair(COLOR_MAGENTA))
+        
+        # Instructions
+        instr_str = "Press Q to cancel and return to menu."
+        instr_x = max(0, (box_width - len(instr_str)) // 2)
+        safe_addstr(stdscr, countdown_y + 4, instr_x, instr_str, curses.color_pair(COLOR_WHITE))
         stdscr.refresh()
         # allow immediate cancel
         for _ in range(10):
             key = stdscr.getch()
             if key in (ord('q'), ord('Q')):
                 stdscr.nodelay(False)
+                stdscr.clear()
                 return False
             time.sleep(0.1)
     stdscr.nodelay(False)
+    stdscr.clear()
     return True
 
 
@@ -208,26 +366,55 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             now = time.time()
             elapsed = now - overall_start_time
             track_elapsed = now - track_start_time
+            current_counter = int(elapsed * COUNTER_RATE)
             stdscr.clear()
-            stdscr.addstr(f"[Deck Recording Mode]\n\n")
-            stdscr.addstr(f"[Normalized] : Average dBFS: {avg_dbfs:.2f}\n")
-            stdscr.addstr(f"[Track Gap] : {track_gap} seconds\n\n")
-            stdscr.addstr("[Tracks]:\n")
+            # Title
+            stdscr.addstr(0, 0, "╔" + "═" * 78 + "╗", curses.color_pair(COLOR_CYAN))
+            stdscr.addstr(1, 30, "DECK RECORDING MODE", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+            stdscr.addstr(2, 0, "╚" + "═" * 78 + "╝", curses.color_pair(COLOR_CYAN))
+            # Counter and stats - use full string for alignment
+            stdscr.addstr(4, 2, "┌─ TAPE COUNTER ──┐", curses.color_pair(COLOR_YELLOW))
+            counter_line = f"│     {current_counter:04d}        │"
+            stdscr.addstr(5, 2, counter_line[:6], curses.color_pair(COLOR_YELLOW))
+            stdscr.addstr(f"{current_counter:04d}", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+            stdscr.addstr(counter_line[10:], curses.color_pair(COLOR_YELLOW))
+            stdscr.addstr(6, 2, "└─────────────────┘", curses.color_pair(COLOR_YELLOW))
+            stdscr.addstr(4, 25, f"AVG dBFS: {avg_dbfs:+.2f}", curses.color_pair(COLOR_CYAN))
+            stdscr.addstr(5, 25, f"TRACK GAP: {track_gap}s", curses.color_pair(COLOR_CYAN))
+            stdscr.addstr(8, 0, "[TRACKS]:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
             for i, t in enumerate(normalized_tracks):
                 wav_name = os.path.basename(t['path'])
                 start_time_track, end_time_track, duration = track_times[i]
-                marker = ">>" if i == idx else "  "
-                stdscr.addstr(
-                    f"{marker} {i+1:02d}. {wav_name}\n"
-                    f"    Start: {format_duration(start_time_track)}   End: {format_duration(end_time_track)}   Duration: {format_duration(duration)}\n"
-                )
-            stdscr.addstr(f"\nPlaying: {os.path.basename(track['path'])} [{format_duration(track_elapsed)}/{format_duration(track_duration)}]\n")
-            # Progress bar
-            bar_len = 40
+                counter_start = int(start_time_track * COUNTER_RATE)
+                counter_end = int(end_time_track * COUNTER_RATE)
+                is_current = i == idx
+                marker = "▶▶" if is_current else "  "
+                color = COLOR_GREEN if is_current else COLOR_CYAN
+                line_y = 9 + (i * 3)
+                stdscr.addstr(line_y, 0, marker, curses.color_pair(COLOR_GREEN) | curses.A_BOLD if is_current else curses.color_pair(COLOR_WHITE))
+                stdscr.addstr(f" {i+1:02d}. ", curses.color_pair(color))
+                stdscr.addstr(f"{wav_name}\n", curses.color_pair(COLOR_YELLOW) if is_current else curses.color_pair(COLOR_WHITE))
+                stdscr.addstr(line_y + 1, 5, f"Start: {format_duration(start_time_track)}   End: {format_duration(end_time_track)}   Duration: {format_duration(duration)}\n", curses.color_pair(color))
+                stdscr.addstr(line_y + 2, 5, f"Counter: ", curses.color_pair(color))
+                stdscr.addstr(f"{counter_start:04d}", curses.color_pair(COLOR_YELLOW))
+                stdscr.addstr(" - ", curses.color_pair(color))
+                stdscr.addstr(f"{counter_end:04d}\n", curses.color_pair(COLOR_YELLOW))
+            play_y = 9 + (len(normalized_tracks) * 3) + 1
+            stdscr.addstr(play_y, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
+            stdscr.addstr(play_y + 1, 0, "NOW PLAYING: ", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+            stdscr.addstr(f"{os.path.basename(track['path'])}", curses.color_pair(COLOR_YELLOW))
+            stdscr.addstr(play_y + 2, 0, f"[{format_duration(track_elapsed)}/{format_duration(track_duration)}]", curses.color_pair(COLOR_GREEN))
+            # Progress bar with VU meter style
+            bar_len = 60
             progress = min(int(bar_len * (track_elapsed / max(1, track_duration))), bar_len)
-            stdscr.addstr("[" + "#" * progress + "-" * (bar_len - progress) + "]\n")
-            stdscr.addstr(f"\nTotal: {format_duration(elapsed)}/{format_duration(total_time)}\n")
-            stdscr.addstr("\nPress Q to quit to main menu.\n")
+            stdscr.addstr(play_y + 3, 0, "[", curses.color_pair(COLOR_CYAN))
+            stdscr.addstr("█" * progress, curses.color_pair(COLOR_GREEN))
+            stdscr.addstr("░" * (bar_len - progress), curses.color_pair(COLOR_BLUE))
+            stdscr.addstr("]\n", curses.color_pair(COLOR_CYAN))
+            stdscr.addstr(play_y + 5, 0, f"TOTAL: {format_duration(elapsed)}/{format_duration(total_time)}", curses.color_pair(COLOR_YELLOW))
+            stdscr.addstr(play_y + 7, 0, "Press ", curses.color_pair(COLOR_WHITE))
+            stdscr.addstr("Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+            stdscr.addstr(" to quit to main menu.", curses.color_pair(COLOR_WHITE))
             stdscr.refresh()
             key = stdscr.getch()
             if key in (ord('q'), ord('Q')):
@@ -283,30 +470,85 @@ def main_menu(folder):
     def draw_menu(stdscr):
         nonlocal current_index, selected_tracks, total_selected_duration, paused
         global ffplay_proc
+        init_colors()
         curses.curs_set(0)
         stdscr.nodelay(False)
+        previewing_index = -1  # Track which file is being previewed
         while True:
+            max_y, max_x = stdscr.getmaxyx()
             stdscr.clear()
-            stdscr.addstr("[Audio Player Menu]\n")
-            stdscr.addstr("Tracks in folder:\n")
+            
+            # Only draw cassette if there's enough room
+            if max_y > 35:
+                draw_cassette_art(stdscr, 1, 5)
+                header_y = 28
+            else:
+                header_y = 0
+            
+            safe_addstr(stdscr, header_y, 0, "═" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, header_y + 1, 20, "AUDIO PLAYER MENU", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+            safe_addstr(stdscr, header_y + 2, 0, "═" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, header_y + 3, 0, "TRACKS IN FOLDER:", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+            # Check if preview is still playing
+            if previewing_index >= 0:
+                if ffplay_proc is None or ffplay_proc.poll() is not None:
+                    previewing_index = -1  # Preview ended
+            
+            track_start_y = header_y + 4
             for i, track in enumerate(tracks):
-                selected_marker = "*" if track in selected_tracks else " "
-                highlight_marker = ">" if i == current_index else " "
+                track_y = track_start_y + i
+                if track_y >= max_y - 10:  # Leave room for footer
+                    break
+                selected_marker = "●" if track in selected_tracks else "○"
+                highlight_marker = "▶" if i == current_index else " "
+                preview_marker = " ♪" if i == previewing_index else ""  # Musical note for playing track
                 duration_str = format_duration(track['duration'])
-                stdscr.addstr(f"{highlight_marker} {selected_marker} {i + 1}. {track['name']} - {duration_str} - {track['codec']} - {track['quality']}\n")
-            stdscr.addstr("\nSelected Tracks:\n")
-            for i, track in enumerate(selected_tracks):
-                duration_str = format_duration(track['duration'])
-                stdscr.addstr(f"{i + 1}. {track['name']} - {duration_str}\n")
-            total_duration_str = format_duration(total_selected_duration)
-            stdscr.addstr(f"\nTotal Duration: {total_duration_str}\n")
-            stdscr.addstr(f"Track Gap: {TRACK_GAP_SECONDS} sec\n")
-            stdscr.addstr(f"Max Duration: {format_duration(TOTAL_DURATION_MINUTES * 60)}\n")
-            stdscr.addstr("\n[Keyboard Shortcuts]\n")
-            stdscr.addstr("Up/Down: Navigate  Space: Select/Deselect  Enter: Normalize + Prep + Record\n")
-            stdscr.addstr("P: Play  X: Stop Preview  Q: Quit\n")
-            if paused:
-                stdscr.addstr("[Paused]\n")
+                is_current = i == current_index
+                is_selected = track in selected_tracks
+                is_previewing = i == previewing_index
+                
+                # Use green for previewing track
+                if is_previewing:
+                    text_color = COLOR_GREEN
+                    attr = curses.A_BOLD
+                elif is_current:
+                    text_color = COLOR_YELLOW
+                    attr = curses.A_BOLD
+                elif is_selected:
+                    text_color = COLOR_CYAN
+                    attr = 0
+                else:
+                    text_color = COLOR_WHITE
+                    attr = 0
+                
+                track_line = f"{highlight_marker} {selected_marker} {i + 1:02d}. {track['name']} - {duration_str}{preview_marker}"
+                safe_addstr(stdscr, track_y, 0, track_line, curses.color_pair(text_color) | attr)
+            sel_y = track_start_y + min(len(tracks), max_y - header_y - 15) + 1
+            if sel_y < max_y - 8:
+                safe_addstr(stdscr, sel_y, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+                safe_addstr(stdscr, sel_y + 1, 0, f"SELECTED TRACKS ({len(selected_tracks)}):", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                
+                # List selected tracks in order
+                current_y = sel_y + 2
+                for i, track in enumerate(selected_tracks):
+                    if current_y >= max_y - 6:  # Leave room for footer
+                        break
+                    duration_str = format_duration(track['duration'])
+                    track_info = f"  {i + 1:02d}. {track['name']} - {duration_str}"
+                    safe_addstr(stdscr, current_y, 0, track_info, curses.color_pair(COLOR_YELLOW))
+                    current_y += 1
+                
+                # Footer info
+                footer_y = current_y + 1
+                total_duration_str = format_duration(total_selected_duration)
+                info_line = f"Total: {total_duration_str} | Gap: {TRACK_GAP_SECONDS}s | Max: {format_duration(TOTAL_DURATION_MINUTES * 60)}"
+                safe_addstr(stdscr, footer_y, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+                safe_addstr(stdscr, footer_y + 1, 0, info_line, curses.color_pair(COLOR_CYAN))
+                
+                safe_addstr(stdscr, footer_y + 2, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+                safe_addstr(stdscr, footer_y + 3, 0, "Up/Down:Nav Space:Select Enter:Record P:Play X:Stop Q:Quit", curses.color_pair(COLOR_WHITE))
+                if paused:
+                    safe_addstr(stdscr, footer_y + 4, 0, "[Paused]", curses.color_pair(COLOR_RED) | curses.A_BLINK)
             stdscr.refresh()
 
             key = stdscr.getch()
@@ -339,11 +581,13 @@ def main_menu(folder):
             elif key in (ord('p'), ord('P')):
                 track_path = os.path.join(folder, tracks[current_index]['name'])
                 play_audio(track_path)
+                previewing_index = current_index
                 paused = False
             elif key in (ord('x'), ord('X')):
                 if ffplay_proc is not None and ffplay_proc.poll() is None:
                     ffplay_proc.terminate()
                     ffplay_proc = None
+                    previewing_index = -1
                     paused = False
             elif key in (curses.KEY_ENTER, 10, 13):
                 # Stop ffplay if running before normalization
@@ -359,7 +603,7 @@ def main_menu(folder):
                     continue
                 # Write tracklist file
                 output_txt = os.path.join(folder, "deck_tracklist.txt")
-                write_deck_tracklist(normalized_tracks, TRACK_GAP_SECONDS, output_txt)
+                write_deck_tracklist(normalized_tracks, TRACK_GAP_SECONDS, output_txt, COUNTER_RATE)
                 # 10-second prep countdown (cancellable)
                 ok = prep_countdown(stdscr, seconds=10)
                 if not ok:
