@@ -171,32 +171,37 @@ def format_duration(seconds):
 
 def draw_vu_meter(stdscr, y, x, level, max_width=40, label=""):
     """
-    Draw a retro VU meter with peak indicators
+    Draw a retro VU meter with segmented blocks
     level: float from 0.0 to 1.0
     """
-    # VU meter segments with colors
-    segments = int(level * max_width)
+    # Calculate number of blocks (each block = 2 chars width + 1 space)
+    block_width = 2
+    block_spacing = 1
+    block_unit = block_width + block_spacing
+    num_blocks = max_width // block_unit
+    segments = int(level * num_blocks)
     
     # Color zones: white (0-85%), red (85-100%)
-    peak_zone = int(max_width * 0.85)
+    peak_zone = int(num_blocks * 0.85)
     
     safe_addstr(stdscr, y, x, f"{label:3s} [", curses.color_pair(COLOR_CYAN))
     
     current_x = x + len(f"{label:3s} [")
-    for i in range(max_width):
+    for i in range(num_blocks):
         if i < segments:
             if i < peak_zone:
-                char = "█"
+                char = "██"
                 color = COLOR_WHITE
             else:
-                char = "█"
+                char = "██"
                 color = COLOR_RED
-            safe_addstr(stdscr, y, current_x + i, char, curses.color_pair(color))
+            safe_addstr(stdscr, y, current_x, char, curses.color_pair(color))
         else:
-            safe_addstr(stdscr, y, current_x + i, "░", curses.color_pair(COLOR_BLUE))
+            safe_addstr(stdscr, y, current_x, "░░", curses.color_pair(COLOR_BLUE))
+        current_x += block_unit
     
     # Add closing bracket
-    safe_addstr(stdscr, y, current_x + max_width, "]", curses.color_pair(COLOR_CYAN))
+    safe_addstr(stdscr, y, current_x, "]", curses.color_pair(COLOR_CYAN))
 
 
 def analyze_audio_levels(audio_segment, chunk_duration_ms=50):
@@ -562,11 +567,12 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             level_l, level_r = get_audio_level_at_time(track['audio_levels'], elapsed_ms)
             stdscr.addstr(play_y + 4, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
             draw_vu_meter(stdscr, play_y + 5, 2, level_l, max_width=50, label="L")
-            draw_vu_meter(stdscr, play_y + 6, 2, level_r, max_width=50, label="R")
-            stdscr.addstr(play_y + 7, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
+            stdscr.addstr(play_y + 6, 0, " " * 78, curses.color_pair(COLOR_CYAN))  # Space between channels
+            draw_vu_meter(stdscr, play_y + 7, 2, level_r, max_width=50, label="R")
+            stdscr.addstr(play_y + 8, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
             
-            stdscr.addstr(play_y + 8, 0, f"TOTAL: {format_duration(elapsed)}/{format_duration(total_time)}", curses.color_pair(COLOR_YELLOW))
-            stdscr.addstr(play_y + 10, 0, "Press ", curses.color_pair(COLOR_WHITE))
+            stdscr.addstr(play_y + 9, 0, f"TOTAL: {format_duration(elapsed)}/{format_duration(total_time)}", curses.color_pair(COLOR_YELLOW))
+            stdscr.addstr(play_y + 11, 0, "Press ", curses.color_pair(COLOR_WHITE))
             stdscr.addstr("Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
             stdscr.addstr(" to quit to main menu.", curses.color_pair(COLOR_WHITE))
             stdscr.refresh()
