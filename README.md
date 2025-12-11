@@ -3,11 +3,32 @@
 A nostalgic cassette tape recording utility with authentic 80s aesthetics. Perfect for audiophiles recording curated playlists to physical cassette tapes with professional-quality preparation and timing control.
 
 ```
-  ╔═══════════════════════════════╗
-  ║  ┌─────┐         ┌─────┐      ║
-  ║  │ ∞∞∞ │    A    │ ∞∞∞ │      ║
-  ║  └─────┘         └─────┘      ║
-  ╚═══════════════════════════════╝
+ /=======================================================q\
+|:@-                                                     #+|
+| '   /==============================================\     |
+|   ./                                                \,   |
+|  :'                                                  `;  |
+|  |                                                    |  |
+|  |                                                    |  |
+|  |                                                    |  |
+|  |          ._____________________________,           |  |
+|  |        ./Lm=\_   mmmmmr======qmm   _m=\Jq          |  |
+|  |        /W'`' *b  ######      W##  d'`' *bt         |  |
+|  |       :\@'    M, ######|     ### :@!    V/,        |  |
+|  |        PW     @! ######b_____### `W_    @@         |  |
+|  |        |/#_,LZ! .d_!!! t|,!! !!d  !@L,mZt!         |  |
+|  |         `=\XX___JXX____JXL_____X_____J+='          |  |
+|  |                                                    |  |
+|  |                                                    |  |
+#  |                                                    |  D,
+#  |                                                    |  ||
+#  `~~~~~~~XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX7~~~~~~~~'  ||
+#         /                                    |           ||
+#         |                 |#-                 |          ||
+#        :'                  '                  t          ||
+M        |          /~|              |~|        |          @
+|.L      /    |~\   \=!              !=!  :~Y,   |       jL|
+!(KL_____b____JGL__________________________GK____G_______8*
 ```
 
 ## ✨ Features
