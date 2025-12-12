@@ -233,12 +233,38 @@ deckpreprec/
      - Counter positions
      - Track durations
 
+## 📸 Screenshots
+
+### Main Menu - Track Selection
+![Main Menu](images/2025-12-12_14-58-17.png)
+*Browse and select tracks with retro ASCII cassette art*
+
+### Track Preview
+![Track Preview](images/2025-12-12_14-58-44.png)
+*Preview tracks before recording with visual playback indicator*
+
+### Normalization Summary
+![Normalization Summary](images/2025-12-12_14-58-56.png)
+*Review normalized track levels and dBFS values*
+
+### Prep Countdown
+![Prep Countdown](images/2025-12-12_14-59-05.png)
+*10-second countdown to prepare your tape deck*
+
+### Leader Gap Countdown
+![Leader Gap](images/2025-12-12_14-59-23.png)
+*Leader tape countdown before first track starts*
+
+### Recording Mode with VU Meters
+![Recording Mode](images/2025-12-12_15-01-18.png)
+*Real-time VU meters, tape counter, and track progress*
+
 ## 🎨 80s Aesthetic Features
 
 - **Neon Color Scheme:** Cyan, magenta, yellow, green
 - **ASCII Cassette Art:** Authentic tape graphics in menu and recording mode
 - **Digital Counter Display:** 4-digit LED-style counter with real-time updates
-- **Segmented VU Meters:** Block character displays (██) with spacing between L/R channels
+- **Segmented VU Meters:** Block character displays (██) with dB scale and spacing between L/R channels
 - **Dynamic Color Zones:** White (0-85%) → Red (85-100%) peak indicators
 - **Waveform Analysis:** Pre-computed RMS levels with 50ms chunk resolution
 - **Retro Box Drawing:** Double-line borders and frames
