@@ -259,7 +259,7 @@ deckpreprec/
 ![Recording Mode](images/2025-12-12_15-01-18.png)
 *Real-time VU meters, tape counter, and track progress*
 
-## 🎨 80s Aesthetic Features
+## 🎨 Features
 
 - **Neon Color Scheme:** Cyan, magenta, yellow, green
 - **ASCII Cassette Art:** Authentic tape graphics in menu and recording mode
