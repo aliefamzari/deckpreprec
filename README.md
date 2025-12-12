@@ -237,7 +237,7 @@ deckpreprec/
 
 ### Main Menu - Track Selection
 ![Main Menu](images/2025-12-12_14-58-17.png)
-*Browse and select tracks with retro ASCII cassette art*
+*Browse and select tracks. Preview is also available*
 
 ### Track Preview and Normalization summary
 ![Track Preview](images/2025-12-12_14-58-44.png)
