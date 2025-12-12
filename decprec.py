@@ -524,21 +524,20 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             draw_cassette_art(stdscr, 0, 10)
             
             title_y = 27
-            stdscr.addstr(title_y, 0, "╔" + "═" * 78 + "╗", curses.color_pair(COLOR_CYAN))
-            stdscr.addstr(title_y + 1, 28, "LEADER GAP - STAND BY", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
-            stdscr.addstr(title_y + 2, 0, "╚" + "═" * 78 + "╝", curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, title_y, 0, "╔" + "═" * 78 + "╗", curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, title_y + 1, 28, "LEADER GAP - STAND BY", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+            safe_addstr(stdscr, title_y + 2, 0, "╚" + "═" * 78 + "╝", curses.color_pair(COLOR_CYAN))
             
-            stdscr.addstr(title_y + 4, 2, "┌─ TAPE COUNTER ──┐", curses.color_pair(COLOR_YELLOW))
+            safe_addstr(stdscr, title_y + 4, 2, "┌─ TAPE COUNTER ──┐", curses.color_pair(COLOR_YELLOW))
             counter_line = f"│     {current_counter:04d}        │"
-            stdscr.addstr(title_y + 5, 2, counter_line[:6], curses.color_pair(COLOR_YELLOW))
-            stdscr.addstr(f"{current_counter:04d}", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-            stdscr.addstr(counter_line[10:], curses.color_pair(COLOR_YELLOW))
-            stdscr.addstr(title_y + 6, 2, "└─────────────────┘", curses.color_pair(COLOR_YELLOW))
+            safe_addstr(stdscr, title_y + 5, 2, counter_line, curses.color_pair(COLOR_YELLOW))
+            safe_addstr(stdscr, title_y + 5, 8, f"{current_counter:04d}", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+            safe_addstr(stdscr, title_y + 6, 2, "└─────────────────┘", curses.color_pair(COLOR_YELLOW))
             
             leader_remaining = int(leader_gap - leader_elapsed)
-            stdscr.addstr(title_y + 8, 10, f"Waiting for leader tape to pass... {leader_remaining}s", 
+            safe_addstr(stdscr, title_y + 8, 10, f"Waiting for leader tape to pass... {leader_remaining}s", 
                          curses.color_pair(COLOR_YELLOW) | curses.A_BLINK)
-            stdscr.addstr(title_y + 10, 10, f"First track will start at counter {int(leader_gap * COUNTER_RATE):04d}", 
+            safe_addstr(stdscr, title_y + 10, 10, f"First track will start at counter {int(leader_gap * COUNTER_RATE):04d}", 
                          curses.color_pair(COLOR_CYAN))
             
             footer_y = title_y + 15
@@ -590,45 +589,45 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             
             # Title below cassette
             title_y = 27
-            stdscr.addstr(title_y, 0, "╔" + "═" * 78 + "╗", curses.color_pair(COLOR_CYAN))
-            stdscr.addstr(title_y + 1, 30, "DECK RECORDING MODE", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
-            stdscr.addstr(title_y + 2, 0, "╚" + "═" * 78 + "╝", curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, title_y, 0, "╔" + "═" * 78 + "╗", curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, title_y + 1, 30, "DECK RECORDING MODE", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+            safe_addstr(stdscr, title_y + 2, 0, "╚" + "═" * 78 + "╝", curses.color_pair(COLOR_CYAN))
             # Counter and stats - use full string for alignment
-            stdscr.addstr(title_y + 4, 2, "┌─ TAPE COUNTER ──┐", curses.color_pair(COLOR_YELLOW))
+            safe_addstr(stdscr, title_y + 4, 2, "┌─ TAPE COUNTER ──┐", curses.color_pair(COLOR_YELLOW))
             counter_line = f"│     {current_counter:04d}        │"
-            stdscr.addstr(title_y + 5, 2, counter_line[:6], curses.color_pair(COLOR_YELLOW))
-            stdscr.addstr(f"{current_counter:04d}", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-            stdscr.addstr(counter_line[10:], curses.color_pair(COLOR_YELLOW))
-            stdscr.addstr(title_y + 6, 2, "└─────────────────┘", curses.color_pair(COLOR_YELLOW))
-            stdscr.addstr(title_y + 4, 25, f"AVG dBFS: {avg_dbfs:+.2f}", curses.color_pair(COLOR_CYAN))
-            stdscr.addstr(title_y + 5, 25, f"TRACK GAP: {track_gap}s", curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, title_y + 5, 2, counter_line, curses.color_pair(COLOR_YELLOW))
+            safe_addstr(stdscr, title_y + 5, 8, f"{current_counter:04d}", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+            safe_addstr(stdscr, title_y + 6, 2, "└─────────────────┘", curses.color_pair(COLOR_YELLOW))
+            safe_addstr(stdscr, title_y + 4, 25, f"AVG dBFS: {avg_dbfs:+.2f}", curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, title_y + 5, 25, f"TRACK GAP: {track_gap}s", curses.color_pair(COLOR_CYAN))
             
             # VU Meters - real audio levels from waveform analysis (below counter)
             meter_y = title_y + 8
             elapsed_ms = int(track_elapsed * 1000)
             level_l, level_r = get_audio_level_at_time(track['audio_levels'], elapsed_ms)
-            stdscr.addstr(meter_y, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, meter_y, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
             draw_vu_meter(stdscr, meter_y + 1, 2, level_l, max_width=50, label="L")
-            stdscr.addstr(meter_y + 2, 0, " " * 78, curses.color_pair(COLOR_CYAN))  # Space between channels
+            safe_addstr(stdscr, meter_y + 2, 0, " " * 78, curses.color_pair(COLOR_CYAN))  # Space between channels
             draw_vu_meter(stdscr, meter_y + 3, 2, level_r, max_width=50, label="R")
-            stdscr.addstr(meter_y + 4, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, meter_y + 4, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
             
             # NOW PLAYING section (after VU meters)
             play_y = meter_y + 6
-            stdscr.addstr(play_y, 0, "NOW PLAYING: ", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
-            stdscr.addstr(f"{os.path.basename(track['path'])}", curses.color_pair(COLOR_YELLOW))
+            safe_addstr(stdscr, play_y, 0, "NOW PLAYING: ", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+            safe_addstr(stdscr, play_y, 13, f"{os.path.basename(track['path'])}", curses.color_pair(COLOR_YELLOW))
             # Progress bar with duration time on the right
             bar_len = 60
             progress = min(int(bar_len * (track_elapsed / max(1, track_duration))), bar_len)
-            stdscr.addstr(play_y + 1, 0, "[", curses.color_pair(COLOR_CYAN))
-            stdscr.addstr("█" * progress, curses.color_pair(COLOR_GREEN))
-            stdscr.addstr("░" * (bar_len - progress), curses.color_pair(COLOR_BLUE))
-            stdscr.addstr("]", curses.color_pair(COLOR_CYAN))
-            stdscr.addstr(f" [{format_duration(track_elapsed)}/{format_duration(track_duration)}]", curses.color_pair(COLOR_GREEN))
+            progress_line = f"[{'█' * progress}{'░' * (bar_len - progress)}] [{format_duration(track_elapsed)}/{format_duration(track_duration)}]"
+            safe_addstr(stdscr, play_y + 1, 0, "[", curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, play_y + 1, 1, "█" * progress, curses.color_pair(COLOR_GREEN))
+            safe_addstr(stdscr, play_y + 1, 1 + progress, "░" * (bar_len - progress), curses.color_pair(COLOR_BLUE))
+            safe_addstr(stdscr, play_y + 1, 1 + bar_len, "]", curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, play_y + 1, 2 + bar_len, f" [{format_duration(track_elapsed)}/{format_duration(track_duration)}]", curses.color_pair(COLOR_GREEN))
             
             # Track list
             tracks_y = play_y + 3
-            stdscr.addstr(tracks_y, 0, "[TRACKS]:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+            safe_addstr(stdscr, tracks_y, 0, "[TRACKS]:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
             for i, t in enumerate(normalized_tracks):
                 wav_name = os.path.basename(t['path'])
                 start_time_track, end_time_track, duration = track_times[i]
@@ -638,14 +637,14 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
                 marker = "▶▶" if is_current else "  "
                 color = COLOR_GREEN if is_current else COLOR_CYAN
                 line_y = tracks_y + 1 + (i * 3)
-                stdscr.addstr(line_y, 0, marker, curses.color_pair(COLOR_GREEN) | curses.A_BOLD if is_current else curses.color_pair(COLOR_WHITE))
-                stdscr.addstr(f" {i+1:02d}. ", curses.color_pair(color))
-                stdscr.addstr(f"{wav_name}\n", curses.color_pair(COLOR_YELLOW) if is_current else curses.color_pair(COLOR_WHITE))
-                stdscr.addstr(line_y + 1, 5, f"Start: {format_duration(start_time_track)}   End: {format_duration(end_time_track)}   Duration: {format_duration(duration)}\n", curses.color_pair(color))
-                stdscr.addstr(line_y + 2, 5, f"Counter: ", curses.color_pair(color))
-                stdscr.addstr(f"{counter_start:04d}", curses.color_pair(COLOR_YELLOW))
-                stdscr.addstr(" - ", curses.color_pair(color))
-                stdscr.addstr(f"{counter_end:04d}\n", curses.color_pair(COLOR_YELLOW))
+                safe_addstr(stdscr, line_y, 0, marker, curses.color_pair(COLOR_GREEN) | curses.A_BOLD if is_current else curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, line_y, 3, f" {i+1:02d}. ", curses.color_pair(color))
+                safe_addstr(stdscr, line_y, 9, f"{wav_name}", curses.color_pair(COLOR_YELLOW) if is_current else curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, line_y + 1, 5, f"Start: {format_duration(start_time_track)}   End: {format_duration(end_time_track)}   Duration: {format_duration(duration)}", curses.color_pair(color))
+                counter_line = f"Counter: {counter_start:04d} - {counter_end:04d}"
+                safe_addstr(stdscr, line_y + 2, 5, counter_line, curses.color_pair(color))
+                safe_addstr(stdscr, line_y + 2, 14, f"{counter_start:04d}", curses.color_pair(COLOR_YELLOW))
+                safe_addstr(stdscr, line_y + 2, 21, f"{counter_end:04d}", curses.color_pair(COLOR_YELLOW))
             
             # Footer (with boundary checking)
             footer_y = tracks_y + 1 + (len(normalized_tracks) * 3) + 1
@@ -675,16 +674,21 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             return
         # Track gap countdown
         if idx < total_tracks - 1:
+            stdscr.nodelay(True)
             for gap_sec in range(track_gap, 0, -1):
-                stdscr.addstr(f"\nNext track in {gap_sec} seconds... (Press Q to quit to main menu)\n")
+                max_y, max_x = stdscr.getmaxyx()
+                gap_y = max_y - 3 if max_y > 5 else 0
+                safe_addstr(stdscr, gap_y, 0, f"Next track in {gap_sec} seconds... (Press Q to quit to main menu)", curses.color_pair(COLOR_YELLOW))
                 stdscr.refresh()
-                stdscr.nodelay(True)
                 key = stdscr.getch()
                 if key in (ord('q'), ord('Q')):
+                    stdscr.nodelay(False)
                     return
                 time.sleep(1)
             stdscr.nodelay(False)
-    stdscr.addstr("\nRecording complete! Press any key to exit.")
+    max_y, max_x = stdscr.getmaxyx()
+    final_y = max_y - 2 if max_y > 3 else 0
+    safe_addstr(stdscr, final_y, 0, "Recording complete! Press any key to exit.", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
     stdscr.refresh()
     stdscr.getch()
 
