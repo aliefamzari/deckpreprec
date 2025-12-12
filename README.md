@@ -1,6 +1,6 @@
-﻿# 📼 Retro 80s Tape Deck Recording CLI
+﻿# 📼 Tape Deck/Prep/Record
 
-A nostalgic cassette tape recording utility with authentic 80s aesthetics. Perfect for audiophiles recording curated playlists to physical cassette tapes with professional-quality preparation and timing control.
+A nostalgic cassette tape recording utility with. Perfect for mixtapes nerd curated playlists to physical cassette tapes with professional-quality preparation and timing control.
 
 ```
  /=======================================================q\
