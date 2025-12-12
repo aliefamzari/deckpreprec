@@ -151,7 +151,7 @@ python decprec.py --folder ./tracks --track-gap 5 --duration 60 --counter-rate 1
 **Arguments:**
 - `--folder PATH` - Audio tracks directory (default: `./tracks`)
 - `--track-gap N` - Gap between tracks in seconds (default: `5`)
-- `--duration N` - Maximum tape duration in minutes (default: `60`)
+- `--duration N` - Maximum tape duration in minutes (default: `30`)
 - `--counter-rate N` - Counter increments per second (default: `1.0`)
 - `--leader-gap N` - Leader gap before first track in seconds (default: `10`)
 

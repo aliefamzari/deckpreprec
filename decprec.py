@@ -63,7 +63,7 @@ from pydub import AudioSegment
 # --- Argument parsing ---
 parser = argparse.ArgumentParser(description="Audio Player for Tape Recording")
 parser.add_argument("--track-gap", type=int, default=5, help="Gap between tracks in seconds (default: 5)")
-parser.add_argument("--duration", type=int, default=60, help="Maximum tape duration in minutes (default: 60)")
+parser.add_argument("--duration", type=int, default=30, help="Maximum tape duration in minutes (default: 30)")
 parser.add_argument("--folder", type=str, default="./tracks", help="Folder with audio tracks")
 parser.add_argument("--counter-rate", type=float, default=1.0, help="Tape counter increments per second (default: 1.0)")
 parser.add_argument("--leader-gap", type=int, default=10, help="Leader gap before first track in seconds (default: 10)")
@@ -607,7 +607,9 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             level_l, level_r = get_audio_level_at_time(track['audio_levels'], elapsed_ms)
             safe_addstr(stdscr, meter_y, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
             draw_vu_meter(stdscr, meter_y + 1, 2, level_l, max_width=50, label="L")
-            safe_addstr(stdscr, meter_y + 2, 0, " " * 78, curses.color_pair(COLOR_CYAN))  # Space between channels
+            # dB scale between meters
+            db_scale = "    -60  -40  -30  -20  -12   -6   -3    0 dB"
+            safe_addstr(stdscr, meter_y + 2, 2, db_scale, curses.color_pair(COLOR_YELLOW))
             draw_vu_meter(stdscr, meter_y + 3, 2, level_r, max_width=50, label="R")
             safe_addstr(stdscr, meter_y + 4, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
             
