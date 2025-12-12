@@ -239,23 +239,23 @@ deckpreprec/
 ![Main Menu](images/2025-12-12_14-58-17.png)
 *Browse and select tracks with retro ASCII cassette art*
 
-### Track Preview
+### Track Preview and Normalization summary
 ![Track Preview](images/2025-12-12_14-58-44.png)
-*Preview tracks before recording with visual playback indicator*
-
-### Normalization Summary
-![Normalization Summary](images/2025-12-12_14-58-56.png)
-*Review normalized track levels and dBFS values*
+*Preview tracks order and normalization value*
 
 ### Prep Countdown
-![Prep Countdown](images/2025-12-12_14-59-05.png)
-*10-second countdown to prepare your tape deck*
+![Prep Countdown](images/2025-12-12_14-58-56.png)
+*10-second countdown*
 
 ### Leader Gap Countdown
-![Leader Gap](images/2025-12-12_14-59-23.png)
-*Leader tape countdown before first track starts*
+![Leader gap Countdown](images/2025-12-12_14-59-05.png)
+*10-second leader gap countdown to prepare your tape deck*
 
 ### Recording Mode with VU Meters
+![Recording Mode](images/2025-12-12_14-59-23.png)
+*Real-time VU meters, tape counter, and track progress*
+
+### Tracklist Output
 ![Recording Mode](images/2025-12-12_15-01-18.png)
 *Real-time VU meters, tape counter, and track progress*
 
