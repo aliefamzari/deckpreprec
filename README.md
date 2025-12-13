@@ -40,7 +40,9 @@ M        |          /~|              |~|        |          @
 - 🎚️ **Adaptive Level Scaling** - 95th percentile RMS normalization prevents constant peaking
 - 📼 **Leader Gap Support** - Configurable pre-roll for non-magnetic leader tape
 - ⏱️ **Duration Management** - Ensures tracks fit within cassette tape limits
-- 🎵 **Track Preview** - Listen before recording with visual indicators
+- 🎵 **Advanced Track Preview** - VCR-style playback with seek, play/pause, and track switching
+- ⏪ **Seek Controls** - Rewind/forward 10 seconds during playback
+- 🎮 **Navigation While Playing** - Browse tracks while music continues in background
 - 📝 **Timestamped Tracklists** - Creates unique reference files with counter positions
 - ⏸️ **Configurable Track Gaps** - Set silence between tracks
 - 🎬 **10-Second Prep Countdown** - Time to press record on your deck
@@ -179,15 +181,28 @@ deckpreprec/
 
 ## 🎹 Keyboard Controls
 
-### Main Menu
+### Main Menu (Track Selection)
 | Key | Action |
 |-----|--------|
-| `↑` / `↓` | Navigate tracks |
-| `Space` | Select/deselect track |
-| `P` | Preview track |
-| `X` | Stop preview |
-| `Enter` | Normalize and start recording |
+| `↑` / `↓` | Navigate tracks (keeps current track playing) |
+| `Space` | Select/deselect track for recording |
+| `P` | Play/Pause track (toggle playback) |
+| `X` | Stop playback and reset position |
+| `←` / `→` | Rewind/Forward 10 seconds (while playing) |
+| `[` / `]` | Jump to previous/next track and play |
+| `Enter` | Start recording process |
 | `Q` | Quit application |
+
+### Normalization Preview Mode
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Navigate tracks (keeps current track playing) |
+| `P` | Play/Pause track (toggle playback) |
+| `X` | Stop playback and reset position |
+| `←` / `→` | Rewind/Forward 10 seconds (while playing) |
+| `[` / `]` | Jump to previous/next track and play |
+| `Enter` | Proceed to recording |
+| `Q` | Return to main menu |
 
 ### Recording Mode
 | Key | Action |
@@ -202,15 +217,18 @@ deckpreprec/
    ```
 
 2. **Select Tracks**
-   - Navigate with arrow keys
-   - Press `Space` to select/deselect
-   - Preview with `P` key
+   - Navigate with arrow keys (↑/↓)
+   - Preview tracks with `P` key (play/pause toggle)
+   - Use `←`/`→` to rewind/forward 10 seconds while playing
+   - Use `[`/`]` to quickly jump between tracks
+   - Press `Space` to select/deselect tracks for recording
    - Monitor total duration
+   - Real-time playback position displayed
 
 3. **Start Recording Process**
    - Press `Enter` when tracks are selected
    - Wait for normalization (cached for subsequent runs)
-   - Review track summary
+   - Review and preview normalized tracks with full playback controls
 
 4. **Deck Preparation**
    - Press `Enter` to start 10-second countdown

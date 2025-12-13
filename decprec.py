@@ -421,27 +421,204 @@ def write_deck_tracklist(normalized_tracks, track_gap, folder, counter_rate, lea
 
 
 def show_normalization_summary(stdscr, normalized_tracks):
-    stdscr.clear()
-    stdscr.refresh()
-    stdscr.erase()
-    safe_addstr(stdscr, 0, 0, "═" * 70, curses.color_pair(COLOR_CYAN))
-    safe_addstr(stdscr, 1, 20, "NORMALIZATION COMPLETE", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-    safe_addstr(stdscr, 2, 0, "═" * 70, curses.color_pair(COLOR_CYAN))
-    safe_addstr(stdscr, 4, 0, "TRACK LIST AND dBFS LEVELS:", curses.color_pair(COLOR_YELLOW))
-    for i, track in enumerate(normalized_tracks):
-        track_line = f"  {i+1:02d}. {track['name']} - dBFS: {track['dBFS']:.2f}"
-        safe_addstr(stdscr, 5 + i, 0, track_line, curses.color_pair(COLOR_CYAN))
+    """Show normalized tracks with playback preview capability"""
+    current_track_idx = 0  # Currently highlighted track
+    playing_track_idx = -1  # Track that is actually playing
+    playing = False
+    preview_proc = None
+    seek_position = 0.0  # Current seek position in seconds
+    play_start_time = None  # When playback started
     
-    footer_y = 6 + len(normalized_tracks)
-    safe_addstr(stdscr, footer_y, 0, "─" * 70, curses.color_pair(COLOR_CYAN))
-    safe_addstr(stdscr, footer_y + 1, 0, "Press ENTER to start prep countdown, or Q to cancel...", curses.color_pair(COLOR_WHITE))
-    stdscr.refresh()
+    def stop_preview():
+        nonlocal preview_proc, playing, seek_position, play_start_time, playing_track_idx
+        if preview_proc is not None and preview_proc.poll() is None:
+            # Calculate current position before stopping
+            if play_start_time is not None:
+                elapsed = time.time() - play_start_time
+                seek_position += elapsed
+            preview_proc.terminate()
+            preview_proc = None
+        playing = False
+        playing_track_idx = -1
+        play_start_time = None
+    
+    def start_preview(idx, start_pos=0.0):
+        nonlocal preview_proc, playing, playing_track_idx, seek_position, play_start_time
+        stop_preview()
+        playing_track_idx = idx
+        seek_position = max(0.0, start_pos)
+        track_path = normalized_tracks[idx]['path']
+        track_duration = normalized_tracks[idx]['audio'].duration_seconds
+        
+        # Don't start if seek position is beyond track duration
+        if seek_position >= track_duration:
+            seek_position = 0.0
+        
+        # Start ffplay with seek position
+        preview_proc = subprocess.Popen([
+            "ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet",
+            "-ss", str(seek_position), track_path
+        ])
+        playing = True
+        play_start_time = time.time()
+    
+    stdscr.nodelay(True)
+    
     while True:
+        # Check if preview finished naturally
+        if playing and preview_proc is not None and preview_proc.poll() is not None:
+            playing = False
+            preview_proc = None
+        
+        stdscr.clear()
+        max_y, max_x = stdscr.getmaxyx()
+        
+        # Header
+        safe_addstr(stdscr, 0, 0, "═" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, 1, 15, "NORMALIZATION COMPLETE - PREVIEW MODE", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+        safe_addstr(stdscr, 2, 0, "═" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+        
+        # Track list
+        safe_addstr(stdscr, 4, 0, "TRACK LIST AND dBFS LEVELS:", curses.color_pair(COLOR_YELLOW))
+        
+        for i, track in enumerate(normalized_tracks):
+            if i + 5 >= max_y - 10:  # Leave room for footer
+                break
+            
+            is_current = i == current_track_idx
+            is_playing = i == playing_track_idx and playing
+            
+            # Markers
+            play_marker = " ♪" if is_playing else ""
+            cursor_marker = "▶" if is_current else " "
+            
+            # Color selection
+            if is_playing:
+                color = COLOR_GREEN
+                attr = curses.A_BOLD
+            elif is_current:
+                color = COLOR_YELLOW
+                attr = curses.A_BOLD
+            else:
+                color = COLOR_CYAN
+                attr = 0
+            
+            track_line = f"{cursor_marker} {i+1:02d}. {track['name']} - dBFS: {track['dBFS']:.2f}{play_marker}"
+            safe_addstr(stdscr, 5 + i, 0, track_line, curses.color_pair(color) | attr)
+        
+        # Status line
+        status_y = 6 + min(len(normalized_tracks), max_y - 17)
+        safe_addstr(stdscr, status_y, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+        
+        if playing:
+            # Calculate current playback position
+            current_pos = seek_position
+            if play_start_time is not None:
+                current_pos += time.time() - play_start_time
+            track_duration = normalized_tracks[playing_track_idx]['audio'].duration_seconds
+            status_text = f"NOW PLAYING: {normalized_tracks[playing_track_idx]['name']}"
+            position_text = f"Position: {format_duration(current_pos)} / {format_duration(track_duration)}"
+            safe_addstr(stdscr, status_y + 1, 0, status_text, curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+            safe_addstr(stdscr, status_y + 2, 0, position_text, curses.color_pair(COLOR_YELLOW))
+        else:
+            safe_addstr(stdscr, status_y + 1, 0, "Ready to preview tracks", curses.color_pair(COLOR_WHITE))
+            safe_addstr(stdscr, status_y + 2, 0, "", curses.color_pair(COLOR_WHITE))
+        
+        # Controls
+        footer_y = status_y + 4
+        safe_addstr(stdscr, footer_y, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, footer_y + 1, 0, "CONTROLS:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+        safe_addstr(stdscr, footer_y + 2, 0, "  ↑/↓: Navigate  ", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 2, 18, "P", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+        safe_addstr(stdscr, footer_y + 2, 19, ": Play  ", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 2, 27, "X", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+        safe_addstr(stdscr, footer_y + 2, 28, ": Stop", curses.color_pair(COLOR_WHITE))
+        
+        safe_addstr(stdscr, footer_y + 3, 0, "  ", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 3, 2, "←", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+        safe_addstr(stdscr, footer_y + 3, 3, ": Rewind 10s  ", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 3, 17, "→", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+        safe_addstr(stdscr, footer_y + 3, 18, ": Forward 10s", curses.color_pair(COLOR_WHITE))
+        
+        safe_addstr(stdscr, footer_y + 4, 0, "  ", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 4, 2, "[", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
+        safe_addstr(stdscr, footer_y + 4, 3, ": Prev Track  ", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 4, 17, "]", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
+        safe_addstr(stdscr, footer_y + 4, 18, ": Next Track", curses.color_pair(COLOR_WHITE))
+        
+        safe_addstr(stdscr, footer_y + 5, 0, "  ", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 5, 2, "ENTER", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+        safe_addstr(stdscr, footer_y + 5, 7, ": Start Recording  ", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 5, 26, "Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+        safe_addstr(stdscr, footer_y + 5, 27, ": Cancel", curses.color_pair(COLOR_WHITE))
+        
+        stdscr.refresh()
+        
+        # Handle input
         key = stdscr.getch()
-        if key in (curses.KEY_ENTER, 10, 13):
-            return True
-        elif key in (ord('q'), ord('Q')):
-            return False
+        if key != -1:  # Key was pressed
+            if key in (curses.KEY_ENTER, 10, 13):
+                stop_preview()
+                stdscr.nodelay(False)
+                return True
+            elif key in (ord('q'), ord('Q')):
+                stop_preview()
+                stdscr.nodelay(False)
+                return False
+            elif key in (curses.KEY_UP, ord('k')):
+                # Navigate without stopping playback
+                current_track_idx = (current_track_idx - 1) % len(normalized_tracks)
+            elif key in (curses.KEY_DOWN, ord('j')):
+                # Navigate without stopping playback
+                current_track_idx = (current_track_idx + 1) % len(normalized_tracks)
+            elif key in (curses.KEY_LEFT, ord('h')):
+                # Rewind 10 seconds in currently playing track
+                if playing:
+                    # Calculate current position
+                    current_pos = seek_position
+                    if play_start_time is not None:
+                        current_pos += time.time() - play_start_time
+                    # Rewind by 10 seconds
+                    new_pos = max(0.0, current_pos - 10.0)
+                    start_preview(playing_track_idx, new_pos)
+            elif key in (curses.KEY_RIGHT, ord('l')):
+                # Forward 10 seconds in currently playing track
+                if playing:
+                    # Calculate current position
+                    current_pos = seek_position
+                    if play_start_time is not None:
+                        current_pos += time.time() - play_start_time
+                    # Forward by 10 seconds
+                    new_pos = current_pos + 10.0
+                    start_preview(playing_track_idx, new_pos)
+            elif key in (ord('['), ord('{')):
+                # Previous track
+                stop_preview()
+                seek_position = 0.0
+                current_track_idx = (current_track_idx - 1) % len(normalized_tracks)
+                start_preview(current_track_idx)
+            elif key in (ord(']'), ord('}')):
+                # Next track
+                stop_preview()
+                seek_position = 0.0
+                current_track_idx = (current_track_idx + 1) % len(normalized_tracks)
+                start_preview(current_track_idx)
+            elif key in (ord('p'), ord('P')):
+                if playing_track_idx == current_track_idx and playing:
+                    # Pause current playback if pressing P on the same track
+                    stop_preview()
+                else:
+                    # Stop any currently playing track and start the highlighted one
+                    if playing:
+                        stop_preview()
+                    # Reset seek position to 0 since we want to start from beginning
+                    seek_position = 0.0
+                    start_preview(current_track_idx, seek_position)
+            elif key in (ord('x'), ord('X')):
+                stop_preview()
+                seek_position = 0.0
+        
+        time.sleep(0.05)  # Reduce CPU usage
 
 
 def prep_countdown(stdscr, seconds=10):
@@ -695,8 +872,8 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
     stdscr.getch()
 
 
-def play_audio(path):
-    """Start ffplay for quick preview. Uses global ffplay_proc so main menu can stop it."""
+def play_audio(path, seek_pos=0.0):
+    """Start ffplay for preview with optional seek position. Uses global ffplay_proc so main menu can stop it."""
     global ffplay_proc
     # stop existing if running
     try:
@@ -704,7 +881,14 @@ def play_audio(path):
             ffplay_proc.terminate()
     except Exception:
         pass
-    ffplay_proc = subprocess.Popen(["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", path])
+    
+    if seek_pos > 0:
+        ffplay_proc = subprocess.Popen([
+            "ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet",
+            "-ss", str(seek_pos), path
+        ])
+    else:
+        ffplay_proc = subprocess.Popen(["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", path])
 
 
 def main_menu(folder):
@@ -723,8 +907,11 @@ def main_menu(folder):
         global ffplay_proc
         init_colors()
         curses.curs_set(0)
-        stdscr.nodelay(False)
+        stdscr.nodelay(True)  # Non-blocking input for real-time updates
         previewing_index = -1  # Track which file is being previewed
+        seek_position = 0.0  # Current seek position in seconds
+        play_start_time = None  # When playback started
+        
         while True:
             max_y, max_x = stdscr.getmaxyx()
             stdscr.clear()
@@ -740,10 +927,12 @@ def main_menu(folder):
             safe_addstr(stdscr, header_y + 1, 20, "AUDIO PLAYER MENU", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
             safe_addstr(stdscr, header_y + 2, 0, "═" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
             safe_addstr(stdscr, header_y + 3, 0, "TRACKS IN FOLDER:", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+            
             # Check if preview is still playing
             if previewing_index >= 0:
                 if ffplay_proc is None or ffplay_proc.poll() is not None:
                     previewing_index = -1  # Preview ended
+                    play_start_time = None
             
             track_start_y = header_y + 4
             for i, track in enumerate(tracks):
@@ -796,71 +985,181 @@ def main_menu(folder):
                 safe_addstr(stdscr, footer_y, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
                 safe_addstr(stdscr, footer_y + 1, 0, info_line, curses.color_pair(COLOR_CYAN))
                 
-                safe_addstr(stdscr, footer_y + 2, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
-                safe_addstr(stdscr, footer_y + 3, 0, "Up/Down:Nav Space:Select Enter:Record P:Play X:Stop Q:Quit", curses.color_pair(COLOR_WHITE))
-                if paused:
-                    safe_addstr(stdscr, footer_y + 4, 0, "[Paused]", curses.color_pair(COLOR_RED) | curses.A_BLINK)
+                # Playback status
+                if previewing_index >= 0 and play_start_time is not None:
+                    current_pos = seek_position + (time.time() - play_start_time)
+                    track_duration = tracks[previewing_index]['duration']
+                    position_text = f"Playing: {format_duration(current_pos)} / {format_duration(track_duration)}"
+                    safe_addstr(stdscr, footer_y + 2, 0, position_text, curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                else:
+                    safe_addstr(stdscr, footer_y + 2, 0, " " * min(70, max_x - 2), 0)
+                
+                safe_addstr(stdscr, footer_y + 3, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+                safe_addstr(stdscr, footer_y + 4, 0, "CONTROLS:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+                safe_addstr(stdscr, footer_y + 5, 0, "  ↑/↓:Nav  Space:Select  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, footer_y + 5, 25, "P", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                safe_addstr(stdscr, footer_y + 5, 26, ":Play  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, footer_y + 5, 33, "X", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                safe_addstr(stdscr, footer_y + 5, 34, ":Stop", curses.color_pair(COLOR_WHITE))
+                
+                safe_addstr(stdscr, footer_y + 6, 0, "  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, footer_y + 6, 2, "←", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                safe_addstr(stdscr, footer_y + 6, 3, ":Rewind 10s  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, footer_y + 6, 17, "→", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                safe_addstr(stdscr, footer_y + 6, 18, ":Forward 10s", curses.color_pair(COLOR_WHITE))
+                
+                safe_addstr(stdscr, footer_y + 7, 0, "  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, footer_y + 7, 2, "[", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
+                safe_addstr(stdscr, footer_y + 7, 3, ":Prev Track  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, footer_y + 7, 17, "]", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
+                safe_addstr(stdscr, footer_y + 7, 18, ":Next Track", curses.color_pair(COLOR_WHITE))
+                
+                safe_addstr(stdscr, footer_y + 8, 0, "  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, footer_y + 8, 2, "ENTER", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                safe_addstr(stdscr, footer_y + 8, 7, ":Record  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, footer_y + 8, 17, "Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                safe_addstr(stdscr, footer_y + 8, 18, ":Quit", curses.color_pair(COLOR_WHITE))
             stdscr.refresh()
 
             key = stdscr.getch()
-            if key in (ord('q'), ord('Q')):
-                # Stop ffplay if running
-                if ffplay_proc is not None and ffplay_proc.poll() is None:
-                    ffplay_proc.terminate()
-                    ffplay_proc = None
-                break
-            elif key in (curses.KEY_UP, ord('k')):
-                current_index = (current_index - 1) % len(tracks)
-            elif key in (curses.KEY_DOWN, ord('j')):
-                current_index = (current_index + 1) % len(tracks)
-            elif key == ord(' '):
-                track = tracks[current_index]
-                if track in selected_tracks:
-                    selected_tracks.remove(track)
-                    total_selected_duration -= track['duration']
-                else:
-                    if total_selected_duration + track['duration'] + TRACK_GAP_SECONDS <= TOTAL_DURATION_MINUTES * 60:
-                        selected_tracks.append(track)
-                        total_selected_duration += track['duration']
+            if key != -1:  # Key was pressed
+                if key in (ord('q'), ord('Q')):
+                    # Stop ffplay if running
+                    if ffplay_proc is not None and ffplay_proc.poll() is None:
+                        ffplay_proc.terminate()
+                        ffplay_proc = None
+                    break
+                elif key in (curses.KEY_UP, ord('k')):
+                    # Navigate without stopping playback
+                    current_index = (current_index - 1) % len(tracks)
+                elif key in (curses.KEY_DOWN, ord('j')):
+                    # Navigate without stopping playback
+                    current_index = (current_index + 1) % len(tracks)
+                elif key == ord(' '):
+                    track = tracks[current_index]
+                    if track in selected_tracks:
+                        selected_tracks.remove(track)
+                        total_selected_duration -= track['duration']
                     else:
-                        max_y, _ = stdscr.getmaxyx()
-                        stdscr.move(max_y - 2, 0)
-                        stdscr.clrtoeol()
-                        stdscr.addstr("[Warning] Total duration exceeded! Press any key to continue.")
-                        stdscr.refresh()
-                        stdscr.getch()
-            elif key in (ord('p'), ord('P')):
-                track_path = os.path.join(folder, tracks[current_index]['name'])
-                play_audio(track_path)
-                previewing_index = current_index
-                paused = False
-            elif key in (ord('x'), ord('X')):
-                if ffplay_proc is not None and ffplay_proc.poll() is None:
-                    ffplay_proc.terminate()
-                    ffplay_proc = None
+                        if total_selected_duration + track['duration'] + TRACK_GAP_SECONDS <= TOTAL_DURATION_MINUTES * 60:
+                            selected_tracks.append(track)
+                            total_selected_duration += track['duration']
+                        else:
+                            stdscr.nodelay(False)
+                            max_y, _ = stdscr.getmaxyx()
+                            stdscr.move(max_y - 2, 0)
+                            stdscr.clrtoeol()
+                            stdscr.addstr("[Warning] Total duration exceeded! Press any key to continue.")
+                            stdscr.refresh()
+                            stdscr.getch()
+                            stdscr.nodelay(True)
+                elif key in (ord('p'), ord('P')):
+                    if previewing_index == current_index and ffplay_proc is not None and ffplay_proc.poll() is None:
+                        # Pause current playback (save position)
+                        if play_start_time is not None:
+                            seek_position += time.time() - play_start_time
+                        ffplay_proc.terminate()
+                        ffplay_proc = None
+                        previewing_index = -1
+                        play_start_time = None
+                    else:
+                        # Stop any currently playing track from different position
+                        if ffplay_proc is not None and ffplay_proc.poll() is None:
+                            ffplay_proc.terminate()
+                            ffplay_proc = None
+                        # Reset seek position and start playback from beginning when switching tracks
+                        if current_index != previewing_index:
+                            seek_position = 0.0
+                        # Start playback
+                        track_path = os.path.join(folder, tracks[current_index]['name'])
+                        play_audio(track_path, seek_position)
+                        previewing_index = current_index
+                        play_start_time = time.time()
+                        paused = False
+                elif key in (ord('x'), ord('X')):
+                    if ffplay_proc is not None and ffplay_proc.poll() is None:
+                        ffplay_proc.terminate()
+                        ffplay_proc = None
                     previewing_index = -1
+                    seek_position = 0.0
+                    play_start_time = None
                     paused = False
-            elif key in (curses.KEY_ENTER, 10, 13):
-                # Stop ffplay if running before normalization
-                if ffplay_proc is not None and ffplay_proc.poll() is None:
-                    ffplay_proc.terminate()
-                    ffplay_proc = None
-                if not selected_tracks:
+                elif key in (curses.KEY_LEFT, ord('h')):
+                    # Rewind 10 seconds in current track
+                    if previewing_index >= 0 and ffplay_proc is not None and ffplay_proc.poll() is None:
+                        # Calculate current position
+                        current_pos = seek_position
+                        if play_start_time is not None:
+                            current_pos += time.time() - play_start_time
+                        # Rewind by 10 seconds
+                        new_pos = max(0.0, current_pos - 10.0)
+                        seek_position = new_pos
+                        track_path = os.path.join(folder, tracks[previewing_index]['name'])
+                        play_audio(track_path, new_pos)
+                        play_start_time = time.time()
+                elif key in (curses.KEY_RIGHT, ord('l')):
+                    # Forward 10 seconds in current track
+                    if previewing_index >= 0 and ffplay_proc is not None and ffplay_proc.poll() is None:
+                        # Calculate current position
+                        current_pos = seek_position
+                        if play_start_time is not None:
+                            current_pos += time.time() - play_start_time
+                        # Forward by 10 seconds
+                        new_pos = current_pos + 10.0
+                        seek_position = new_pos
+                        track_path = os.path.join(folder, tracks[previewing_index]['name'])
+                        play_audio(track_path, new_pos)
+                        play_start_time = time.time()
+                elif key in (ord('['), ord('{')):
+                    # Previous track
+                    if ffplay_proc is not None and ffplay_proc.poll() is None:
+                        ffplay_proc.terminate()
+                        ffplay_proc = None
+                    current_index = (current_index - 1) % len(tracks)
+                    seek_position = 0.0
+                    track_path = os.path.join(folder, tracks[current_index]['name'])
+                    play_audio(track_path)
+                    previewing_index = current_index
+                    play_start_time = time.time()
+                elif key in (ord(']'), ord('}')):
+                    # Next track
+                    if ffplay_proc is not None and ffplay_proc.poll() is None:
+                        ffplay_proc.terminate()
+                        ffplay_proc = None
+                    current_index = (current_index + 1) % len(tracks)
+                    seek_position = 0.0
+                    track_path = os.path.join(folder, tracks[current_index]['name'])
+                    play_audio(track_path)
+                    previewing_index = current_index
+                    play_start_time = time.time()
+                elif key in (curses.KEY_ENTER, 10, 13):
+                    stdscr.nodelay(False)
+                    # Stop ffplay if running before normalization
+                    if ffplay_proc is not None and ffplay_proc.poll() is None:
+                        ffplay_proc.terminate()
+                        ffplay_proc = None
+                    if not selected_tracks:
+                        stdscr.nodelay(True)
+                        continue
+                    # Normalize (skips existing normalized wavs)
+                    normalized_tracks = normalize_tracks(selected_tracks, folder, stdscr)
+                    proceed = show_normalization_summary(stdscr, normalized_tracks)
+                    if not proceed:
+                        stdscr.nodelay(True)
+                        continue
+                    # Write tracklist file with unique timestamp
+                    output_txt = write_deck_tracklist(normalized_tracks, TRACK_GAP_SECONDS, folder, COUNTER_RATE, LEADER_GAP_SECONDS)
+                    # 10-second prep countdown (cancellable)
+                    ok = prep_countdown(stdscr, seconds=10)
+                    if not ok:
+                        stdscr.nodelay(True)
+                        continue
+                    # Start deck recording/playback
+                    playback_deck_recording(stdscr, normalized_tracks, TRACK_GAP_SECONDS, TOTAL_DURATION_MINUTES * 60, LEADER_GAP_SECONDS)
+                    stdscr.nodelay(True)
                     continue
-                # Normalize (skips existing normalized wavs)
-                normalized_tracks = normalize_tracks(selected_tracks, folder, stdscr)
-                proceed = show_normalization_summary(stdscr, normalized_tracks)
-                if not proceed:
-                    continue
-                # Write tracklist file with unique timestamp
-                output_txt = write_deck_tracklist(normalized_tracks, TRACK_GAP_SECONDS, folder, COUNTER_RATE, LEADER_GAP_SECONDS)
-                # 10-second prep countdown (cancellable)
-                ok = prep_countdown(stdscr, seconds=10)
-                if not ok:
-                    continue
-                # Start deck recording/playback
-                playback_deck_recording(stdscr, normalized_tracks, TRACK_GAP_SECONDS, TOTAL_DURATION_MINUTES * 60, LEADER_GAP_SECONDS)
-                continue
+            
+            time.sleep(0.05)  # Reduce CPU usage
 
     curses.wrapper(draw_menu)
 
