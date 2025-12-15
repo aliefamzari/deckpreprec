@@ -1011,6 +1011,7 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
         
         stdscr.nodelay(False)
         if quit_to_menu:
+            stdscr.clear()
             return
 
     for idx, track in enumerate(normalized_tracks):
@@ -1141,6 +1142,7 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             time.sleep(0.05)  # Reduced from 0.1 to make VU meters more responsive
         stdscr.nodelay(False)
         if quit_to_menu:
+            stdscr.clear()
             return
         # Track gap countdown
         if idx < total_tracks - 1:
@@ -1153,6 +1155,7 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
                 key = stdscr.getch()
                 if key in (ord('q'), ord('Q')):
                     stdscr.nodelay(False)
+                    stdscr.clear()
                     return
                 time.sleep(1)
             stdscr.nodelay(False)
@@ -1161,6 +1164,8 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
     safe_addstr(stdscr, final_y, 0, "Recording complete! Press any key to exit.", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
     stdscr.refresh()
     stdscr.getch()
+    stdscr.clear()
+    stdscr.clear()
 
 
 def play_audio(path, seek_pos=0.0):
