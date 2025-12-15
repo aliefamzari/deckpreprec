@@ -1268,10 +1268,10 @@ def main_menu(folder):
             if current_index < scroll_offset:
                 scroll_offset = current_index
             
-            # Clear track list area if scroll position changed or on full redraw
+            # Clear entire content area if scroll position changed or on full redraw
             if scroll_offset != last_scroll_offset or needs_full_redraw:
-                # Clear the track list region completely (more lines to be safe)
-                for clear_y in range(track_start_y, min(track_start_y + 20, max_y - 1)):
+                # Clear from track list all the way to bottom (tracks + selected + footer + controls)
+                for clear_y in range(track_start_y, max_y - 1):
                     try:
                         stdscr.move(clear_y, 0)
                         stdscr.clrtoeol()
