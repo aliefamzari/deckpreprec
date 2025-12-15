@@ -107,7 +107,7 @@ python -m venv venv
 source venv/bin/activate
 
 # Install Python packages
-pip install pydub
+pip install pydub pyloudnorm numpy
 
 # Run the application
 python decprec.py
@@ -124,7 +124,7 @@ python3 -m venv venv
 source venv/bin/activate
 
 # Install Python packages
-pip install pydub
+pip install pydub pyloudnorm numpy
 
 # Run the application
 python decprec.py
@@ -176,13 +176,15 @@ python -m venv .venv
 .venv\Scripts\Activate.ps1
 
 # Install dependencies
-pip install windows-curses pydub
+pip install windows-curses pydub pyloudnorm numpy
 
-# Update script paths to point to your FFmpeg installation
-# Edit line ~36 in decprec.py to point to your ffmpeg.exe location
+# Run the application (must specify ffmpeg.exe location on Windows)
+# Find where FFmpeg is installed (common locations):
+# - C:\ffmpeg\bin\ffmpeg.exe
+# - C:\Program Files\ffmpeg\bin\ffmpeg.exe
+# - C:\Users\YourUsername\ffmpeg\bin\ffmpeg.exe
 
-# Run the application
-python decprec.py
+python decprec.py --ffmpeg-path "C:\ffmpeg\bin\ffmpeg.exe"
 ```
 
 ## 📖 Usage
@@ -208,6 +210,7 @@ python decprec.py --folder ./tracks --track-gap 5 --duration 60 --counter-rate 1
 - `--normalization METHOD` - Normalization method: `peak` or `lufs` (default: `lufs`)
 - `--target-lufs N` - Target LUFS level for LUFS normalization (default: `-14.0`)
 - `--audio-latency N` - Audio latency compensation in seconds for VU meter sync (default: `0.0`, try `0.1-0.5` if audio lags behind meters)
+- `--ffmpeg-path PATH` - Path to ffmpeg binary (default: `/usr/bin/ffmpeg`). Use this on Windows to point to your `ffmpeg.exe` location
 
 ### Supported Audio Formats
 

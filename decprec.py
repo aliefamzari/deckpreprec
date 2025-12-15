@@ -77,6 +77,7 @@ parser.add_argument("--leader-gap", type=int, default=10, help="Leader gap befor
 parser.add_argument("--normalization", type=str, default="lufs", choices=["peak", "lufs"], help="Normalization method: 'peak' or 'lufs' (default: lufs)")
 parser.add_argument("--target-lufs", type=float, default=-14.0, help="Target LUFS level for LUFS normalization (default: -14.0)")
 parser.add_argument("--audio-latency", type=float, default=0.0, help="Audio latency compensation in seconds for VU meter sync (default: 0.0, try 0.1-0.5 if audio lags behind meters)")
+parser.add_argument("--ffmpeg-path", type=str, default="/usr/bin/ffmpeg", help="Path to ffmpeg binary (default: /usr/bin/ffmpeg)")
 args = parser.parse_args()
 
 TRACK_GAP_SECONDS = args.track_gap
@@ -87,10 +88,16 @@ LEADER_GAP_SECONDS = args.leader_gap
 NORMALIZATION_METHOD = args.normalization
 TARGET_LUFS = args.target_lufs
 AUDIO_LATENCY = args.audio_latency
+FFMPEG_PATH = args.ffmpeg_path
 
 # Add /usr/sbin to PATH for ffmpeg/ffprobe/ffplay if present
 os.environ["PATH"] += os.pathsep + "/usr/sbin"
-AudioSegment.converter = "/usr/bin/ffmpeg"
+
+# Add ffmpeg directory to PATH (for ffprobe/ffplay) and set converter
+ffmpeg_dir = os.path.dirname(FFMPEG_PATH)
+if ffmpeg_dir and ffmpeg_dir not in os.environ["PATH"]:
+    os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ["PATH"]
+AudioSegment.converter = FFMPEG_PATH
 
 # Global ffplay process used for preview playback (from main menu)
 ffplay_proc = None
@@ -613,14 +620,19 @@ def show_normalization_summary(stdscr, normalized_tracks):
         playback_start_time = time.time()
     
     stdscr.nodelay(True)
+    needs_full_redraw = True
     
     while True:
         # Check if preview finished naturally
         if playing and preview_proc is not None and preview_proc.poll() is not None:
             playing = False
             preview_proc = None
+            needs_full_redraw = True
         
-        stdscr.clear()
+        if needs_full_redraw:
+            stdscr.erase()
+            needs_full_redraw = False
+        
         max_y, max_x = stdscr.getmaxyx()
         
         # Header
@@ -738,9 +750,11 @@ def show_normalization_summary(stdscr, normalized_tracks):
             elif key in (curses.KEY_UP, ord('k')):
                 # Navigate without stopping playback
                 current_track_idx = (current_track_idx - 1) % len(normalized_tracks)
+                needs_full_redraw = True
             elif key in (curses.KEY_DOWN, ord('j')):
                 # Navigate without stopping playback
                 current_track_idx = (current_track_idx + 1) % len(normalized_tracks)
+                needs_full_redraw = True
             elif key in (curses.KEY_LEFT, ord('h')):
                 # Rewind 10 seconds in currently playing track
                 if playing:
@@ -957,6 +971,8 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
         stdscr.nodelay(True)
         leader_start_time = time.time()
         quit_to_menu = False
+        first_leader_draw = True
+        last_leader_counter = -1
         while True:
             elapsed = time.time() - overall_start_time
             leader_elapsed = time.time() - leader_start_time
@@ -965,7 +981,19 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             if leader_elapsed >= leader_gap:
                 break
             
-            stdscr.clear()
+            # Only redraw if counter changed
+            if current_counter == last_leader_counter and not first_leader_draw:
+                time.sleep(0.05)
+                key = stdscr.getch()
+                if key in (ord('q'), ord('Q')):
+                    quit_to_menu = True
+                    break
+                continue
+            
+            last_leader_counter = current_counter
+            if first_leader_draw:
+                stdscr.erase()
+                first_leader_draw = False
             draw_cassette_art(stdscr, 0, 10)
             
             title_y = 27
@@ -991,13 +1019,6 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             safe_addstr(stdscr, footer_y, 7, " to quit to main menu.", curses.color_pair(COLOR_WHITE))
             
             stdscr.refresh()
-            
-            key = stdscr.getch()
-            if key in (ord('q'), ord('Q')):
-                quit_to_menu = True
-                break
-            
-            time.sleep(0.05)
         
         stdscr.nodelay(False)
         if quit_to_menu:
@@ -1021,14 +1042,24 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             current_counter = int(elapsed * COUNTER_RATE)
             current_progress = int(60 * (track_elapsed / max(1, track_duration)))
             
-            # Only redraw if something changed or first draw
-            if first_draw or current_counter != last_counter or current_progress != last_progress:
-                if first_draw:
-                    stdscr.clear()
-                    first_draw = False
-                else:
-                    # Don't clear entire screen, just update changed areas
-                    pass
+            # Only redraw cassette and static elements on first draw
+            if first_draw:
+                stdscr.erase()
+                first_draw = False
+            
+            # Only update if counter or progress changed
+            if current_counter == last_counter and current_progress == last_progress:
+                time.sleep(0.05)
+                key = stdscr.getch()
+                if key in (ord('q'), ord('Q')):
+                    if proc.poll() is None:
+                        proc.terminate()
+                    quit_to_menu = True
+                    break
+                if proc.poll() is not None:
+                    break
+                continue
+            
             # Draw cassette art at top
             draw_cassette_art(stdscr, 0, 10)
             
@@ -1190,9 +1221,14 @@ def main_menu(folder):
         preview_audio_levels = None  # Pre-analyzed audio levels for preview
         preview_audio_segment = None  # AudioSegment for current preview
         
+        needs_full_redraw = True
+        
         while True:
             max_y, max_x = stdscr.getmaxyx()
-            stdscr.clear()
+            
+            if needs_full_redraw:
+                stdscr.erase()
+                needs_full_redraw = False
             
             # Only draw cassette if there's enough room
             if max_y > 35:
@@ -1339,10 +1375,12 @@ def main_menu(folder):
                     if track in selected_tracks:
                         selected_tracks.remove(track)
                         total_selected_duration -= track['duration']
+                        needs_full_redraw = True
                     else:
                         if total_selected_duration + track['duration'] + TRACK_GAP_SECONDS <= TOTAL_DURATION_MINUTES * 60:
                             selected_tracks.append(track)
                             total_selected_duration += track['duration']
+                            needs_full_redraw = True
                         else:
                             stdscr.nodelay(False)
                             max_y, _ = stdscr.getmaxyx()
