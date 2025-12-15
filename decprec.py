@@ -149,34 +149,21 @@ def draw_retro_border(stdscr, y, x, width, title=""):
         pass
 
 def draw_cassette_art(stdscr, y, x):
-    """Draw ASCII cassette tape art from cassette.txt"""
+    """Draw ASCII cassette tape art (compact version)"""
     art = [
-        " /=======================================================q\\",
-        "|:@-                                                     #+|",
-        "| '   /==============================================\\     |",
-        "|   ./                                                \\,   |",
-        "|  :'                                                  `;  |",
-        "|  |                                                    |  |",
-        "|  |                                                    |  |",
-        "|  |                                                    |  |",
-        "|  |          ._____________________________,           |  |",
-        "|  |        ./Lm=\\_   mmmmmr======qmm   _m=\\Jq          |  |",
-        "|  |        /W'`' *b  ######      W##  d'`' *bt         |  |",
-        "|  |       :\\@'    M, ######|     ### :@!    V/,        |  |",
-        "|  |        PW     @! ######b_____### `W_    @@         |  |",
-        "|  |        |/#_,LZ! .d_!!! t|,!! !!d  !@L,mZt!         |  |",
-        "|  |         `=\\XX___JXX____JXL_____X_____J+='          |  |",
-        "|  |                                                    |  |",
-        "|  |                                                    |  |",
-        "#  |                                                    |  D,",
-        "#  |                                                    |  ||",
-        "#  `~~~~~~~XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX7~~~~~~~~'  ||",
-        "#         /                                    |           ||",
-        "#         |                 |#-                 |          ||",
-        "#        :'                  '                  t          ||",
-        "M        |          /~|              |~|        |          @",
-        "|.L      /    |~\\   \\=!              !=!  :~Y,   |       jL|",
-        "!(KL_____b____JGL__________________________GK____G_______8*"
+        " /=========================q\\",
+        "|:@-                       #+|",
+        "| ' /===================\\   |",
+        "| :'                     `;  |",
+        "| |   .___________,       |  |",
+        "| | ./L=\\ mmm==mm /=\\J    |  |",
+        "| | /W *b ###  ## d* b    |  |",
+        "| | \\@  M ###__## W  @    |  |",
+        "| |  `=\\XX___XX____J='    |  |",
+        "| |                       |  |",
+        "# `~~~~~XXXXXXXXXX7~~~~~~~'  |",
+        "#   /~|          |~|         |",
+        "!___JG____________GK_________*"
     ]
     for i, line in enumerate(art):
         try:
@@ -996,7 +983,7 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
                 first_leader_draw = False
             draw_cassette_art(stdscr, 0, 10)
             
-            title_y = 27
+            title_y = 14
             safe_addstr(stdscr, title_y, 0, "╔" + "═" * 78 + "╗", curses.color_pair(COLOR_CYAN))
             safe_addstr(stdscr, title_y + 1, 28, "LEADER GAP - STAND BY", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
             safe_addstr(stdscr, title_y + 2, 0, "╚" + "═" * 78 + "╝", curses.color_pair(COLOR_CYAN))
@@ -1064,7 +1051,7 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             draw_cassette_art(stdscr, 0, 10)
             
             # Title below cassette
-            title_y = 27
+            title_y = 14
             safe_addstr(stdscr, title_y, 0, "╔" + "═" * 78 + "╗", curses.color_pair(COLOR_CYAN))
             safe_addstr(stdscr, title_y + 1, 30, "DECK RECORDING MODE", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
             safe_addstr(stdscr, title_y + 2, 0, "╚" + "═" * 78 + "╝", curses.color_pair(COLOR_CYAN))
@@ -1233,7 +1220,7 @@ def main_menu(folder):
             # Only draw cassette if there's enough room
             if max_y > 35:
                 draw_cassette_art(stdscr, 1, 5)
-                header_y = 28
+                header_y = 15
             else:
                 header_y = 0
             
