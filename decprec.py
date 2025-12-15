@@ -1268,10 +1268,10 @@ def main_menu(folder):
             if current_index < scroll_offset:
                 scroll_offset = current_index
             
-            # Clear track list area if scroll position changed
-            if scroll_offset != last_scroll_offset:
-                # Clear the track list region completely
-                for clear_y in range(track_start_y, track_start_y + 14):
+            # Clear track list area if scroll position changed or on full redraw
+            if scroll_offset != last_scroll_offset or needs_full_redraw:
+                # Clear the track list region completely (more lines to be safe)
+                for clear_y in range(track_start_y, min(track_start_y + 20, max_y - 1)):
                     try:
                         stdscr.move(clear_y, 0)
                         stdscr.clrtoeol()
@@ -1314,13 +1314,22 @@ def main_menu(folder):
                     text_color = COLOR_WHITE
                     attr = 0
                 
-                # Truncate filename to fit screen (leave 20 chars for markers + duration)
-                track_name = track['name']
-                max_name_len = max_x - 20
-                if len(track_name) > max_name_len and max_name_len > 10:
-                    track_name = track_name[:max_name_len - 3] + "..."
+                # Build track line with proper truncation
+                prefix = f"{highlight_marker} {selected_marker} {i + 1:02d}. "
+                suffix = f" - {duration_str}{preview_marker}"
                 
-                track_line = f"{highlight_marker} {selected_marker} {i + 1:02d}. {track_name} - {duration_str}{preview_marker}"
+                # Calculate available space for filename
+                available_space = max_x - len(prefix) - len(suffix) - 2  # -2 for safety margin
+                track_name = track['name']
+                if len(track_name) > available_space and available_space > 10:
+                    track_name = track_name[:available_space - 3] + "..."
+                
+                track_line = f"{prefix}{track_name}{suffix}"
+                
+                # Ensure entire line fits in screen width
+                if len(track_line) > max_x - 2:
+                    track_line = track_line[:max_x - 5] + "..."
+                
                 safe_addstr(stdscr, track_y, 0, track_line, curses.color_pair(text_color) | attr)
             
             # Show bottom scroll indicator
