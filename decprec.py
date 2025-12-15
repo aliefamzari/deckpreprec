@@ -729,10 +729,12 @@ def show_normalization_summary(stdscr, normalized_tracks):
             if key in (curses.KEY_ENTER, 10, 13):
                 stop_preview()
                 stdscr.nodelay(False)
+                stdscr.clear()
                 return True
             elif key in (ord('q'), ord('Q')):
                 stop_preview()
                 stdscr.nodelay(False)
+                stdscr.clear()
                 return False
             elif key in (curses.KEY_UP, ord('k')):
                 # Navigate without stopping playback
