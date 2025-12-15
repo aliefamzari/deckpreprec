@@ -1204,6 +1204,7 @@ def main_menu(folder):
         preview_audio_segment = None  # AudioSegment for current preview
         
         needs_full_redraw = True
+        last_scroll_offset = -1  # Track scroll position changes
         
         while True:
             max_y, max_x = stdscr.getmaxyx()
@@ -1267,9 +1268,16 @@ def main_menu(folder):
             if current_index < scroll_offset:
                 scroll_offset = current_index
             
+            # Clear track list area if scroll position changed
+            if scroll_offset != last_scroll_offset:
+                # Clear the track list region (14 lines to cover all tracks + indicators)
+                for clear_y in range(track_start_y, track_start_y + 14):
+                    safe_addstr(stdscr, clear_y, 0, " " * min(70, max_x - 2), 0)
+                last_scroll_offset = scroll_offset
+            
             # Show scroll indicators
             if scroll_offset > 0:
-                safe_addstr(stdscr, track_start_y, 0, "  ↑ More tracks above... ", curses.color_pair(COLOR_CYAN) | curses.A_DIM)
+                safe_addstr(stdscr, track_start_y, 0, "  ↑ More tracks above... " + " " * 45, curses.color_pair(COLOR_CYAN) | curses.A_DIM)
                 track_display_start = track_start_y + 1
             else:
                 track_display_start = track_start_y
@@ -1302,13 +1310,23 @@ def main_menu(folder):
                     text_color = COLOR_WHITE
                     attr = 0
                 
-                track_line = f"{highlight_marker} {selected_marker} {i + 1:02d}. {track['name']} - {duration_str}{preview_marker}"
-                safe_addstr(stdscr, track_y, 0, track_line, curses.color_pair(text_color) | attr)
+                # Truncate long filenames to prevent wrapping
+                max_name_len = max_x - 25  # Leave space for markers, number, duration
+                track_name = track['name']
+                if len(track_name) > max_name_len:
+                    track_name = track_name[:max_name_len - 3] + "..."
+                
+                track_line = f"{highlight_marker} {selected_marker} {i + 1:02d}. {track_name} - {duration_str}{preview_marker}"
+                # Pad with spaces to clear any previous content
+                padded_line = track_line + " " * (min(70, max_x - 2) - len(track_line))
+                safe_addstr(stdscr, track_y, 0, padded_line, curses.color_pair(text_color) | attr)
             
             # Show bottom scroll indicator
             if visible_end < len(tracks):
+                indicator = f"  ↓ {len(tracks) - visible_end} more tracks below... "
+                padded_indicator = indicator + " " * (min(70, max_x - 2) - len(indicator))
                 safe_addstr(stdscr, track_display_start + (visible_end - scroll_offset), 0, 
-                           f"  ↓ {len(tracks) - visible_end} more tracks below... ", 
+                           padded_indicator, 
                            curses.color_pair(COLOR_CYAN) | curses.A_DIM)
                 sel_y = track_display_start + (visible_end - scroll_offset) + 2
             else:
