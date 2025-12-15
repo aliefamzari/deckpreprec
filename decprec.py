@@ -1258,11 +1258,28 @@ def main_menu(folder):
                     previewing_index = -1  # Preview ended
                     play_start_time = None
             
+            # Scrollable track list with fixed visible window
             track_start_y = tracklist_y + 1
-            for i, track in enumerate(tracks):
-                track_y = track_start_y + i
-                if track_y >= max_y - 8:  # Leave room for footer
-                    break
+            max_visible_tracks = 10  # Fixed number of visible tracks
+            
+            # Calculate scroll offset to keep current track visible
+            scroll_offset = max(0, current_index - max_visible_tracks + 1)
+            if current_index < scroll_offset:
+                scroll_offset = current_index
+            
+            # Show scroll indicators
+            if scroll_offset > 0:
+                safe_addstr(stdscr, track_start_y, 0, "  ↑ More tracks above... ", curses.color_pair(COLOR_CYAN) | curses.A_DIM)
+                track_display_start = track_start_y + 1
+            else:
+                track_display_start = track_start_y
+            
+            # Display visible tracks
+            visible_end = min(scroll_offset + max_visible_tracks, len(tracks))
+            for idx, i in enumerate(range(scroll_offset, visible_end)):
+                track = tracks[i]
+                track_y = track_display_start + idx
+                
                 selected_marker = "●" if track in selected_tracks else "○"
                 highlight_marker = "▶" if i == current_index else " "
                 preview_marker = " ♪" if i == previewing_index else ""  # Musical note for playing track
@@ -1287,7 +1304,15 @@ def main_menu(folder):
                 
                 track_line = f"{highlight_marker} {selected_marker} {i + 1:02d}. {track['name']} - {duration_str}{preview_marker}"
                 safe_addstr(stdscr, track_y, 0, track_line, curses.color_pair(text_color) | attr)
-            sel_y = track_start_y + min(len(tracks), max_y - header_y - 15) + 1
+            
+            # Show bottom scroll indicator
+            if visible_end < len(tracks):
+                safe_addstr(stdscr, track_display_start + (visible_end - scroll_offset), 0, 
+                           f"  ↓ {len(tracks) - visible_end} more tracks below... ", 
+                           curses.color_pair(COLOR_CYAN) | curses.A_DIM)
+                sel_y = track_display_start + (visible_end - scroll_offset) + 2
+            else:
+                sel_y = track_display_start + (visible_end - scroll_offset) + 1
             if sel_y < max_y - 8:
                 safe_addstr(stdscr, sel_y, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
                 safe_addstr(stdscr, sel_y + 1, 0, f"SELECTED TRACKS ({len(selected_tracks)}):", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
