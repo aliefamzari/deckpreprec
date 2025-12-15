@@ -1205,6 +1205,7 @@ def main_menu(folder):
         
         needs_full_redraw = True
         last_scroll_offset = -1  # Track scroll position changes
+        capacity_warning_until = 0  # Timestamp until which to show capacity warning
         
         while True:
             max_y, max_x = stdscr.getmaxyx()
@@ -1354,12 +1355,30 @@ def main_menu(folder):
                     safe_addstr(stdscr, current_y, 0, track_info, curses.color_pair(COLOR_YELLOW))
                     current_y += 1
                 
-                # Footer info
+                # Footer info with highlighting if at/over capacity or warning active
                 footer_y = current_y + 1
                 total_duration_str = format_duration(total_selected_duration)
-                info_line = f"Total Recording Time: {total_duration_str} | Tape Leader Gap: {LEADER_GAP_SECONDS}s | Track Gap: {TRACK_GAP_SECONDS}s | Tape Length: {format_duration(TOTAL_DURATION_MINUTES * 60)}"
+                tape_length_str = format_duration(TOTAL_DURATION_MINUTES * 60)
+                
+                # Check if at or over capacity, or if warning is active
+                at_capacity = total_selected_duration >= TOTAL_DURATION_MINUTES * 60
+                show_warning = at_capacity or time.time() < capacity_warning_until
+                
                 safe_addstr(stdscr, footer_y, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
-                safe_addstr(stdscr, footer_y + 1, 0, info_line, curses.color_pair(COLOR_CYAN))
+                
+                # Build info line with selective highlighting
+                safe_addstr(stdscr, footer_y + 1, 0, "Total Recording Time: ", curses.color_pair(COLOR_CYAN))
+                time_color = COLOR_RED if show_warning else COLOR_CYAN
+                time_attr = curses.A_BOLD | curses.A_BLINK if show_warning else 0
+                safe_addstr(stdscr, footer_y + 1, 22, total_duration_str, curses.color_pair(time_color) | time_attr)
+                
+                safe_addstr(stdscr, footer_y + 1, 22 + len(total_duration_str), 
+                           f" | Tape Leader Gap: {LEADER_GAP_SECONDS}s | Track Gap: {TRACK_GAP_SECONDS}s | Tape Length: ", 
+                           curses.color_pair(COLOR_CYAN))
+                
+                length_x = 22 + len(total_duration_str) + len(f" | Tape Leader Gap: {LEADER_GAP_SECONDS}s | Track Gap: {TRACK_GAP_SECONDS}s | Tape Length: ")
+                safe_addstr(stdscr, footer_y + 1, length_x, tape_length_str, 
+                           curses.color_pair(time_color) | time_attr)
                 
                 # Controls
                 controls_y = footer_y + 2
@@ -1416,14 +1435,8 @@ def main_menu(folder):
                             total_selected_duration += track['duration']
                             needs_full_redraw = True
                         else:
-                            stdscr.nodelay(False)
-                            max_y, _ = stdscr.getmaxyx()
-                            stdscr.move(max_y - 2, 0)
-                            stdscr.clrtoeol()
-                            stdscr.addstr("[Warning] Total duration exceeded! Press any key to continue.")
-                            stdscr.refresh()
-                            stdscr.getch()
-                            stdscr.nodelay(True)
+                            # Track exceeded capacity - show warning for 2 seconds
+                            capacity_warning_until = time.time() + 2.0
                 elif key in (ord('p'), ord('P')):
                     if previewing_index == current_index and ffplay_proc is not None and ffplay_proc.poll() is None:
                         # Pause current playback (save position)
