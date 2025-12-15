@@ -57,8 +57,15 @@ import time
 import curses
 import random
 import math
+import numpy as np
 from datetime import datetime
 from pydub import AudioSegment
+try:
+    import pyloudnorm as pyln
+    PYLOUDNORM_AVAILABLE = True
+except ImportError:
+    PYLOUDNORM_AVAILABLE = False
+    pyln = None
 
 # --- Argument parsing ---
 parser = argparse.ArgumentParser(description="Audio Player for Tape Recording")
@@ -67,6 +74,9 @@ parser.add_argument("--duration", type=int, default=30, help="Maximum tape durat
 parser.add_argument("--folder", type=str, default="./tracks", help="Folder with audio tracks")
 parser.add_argument("--counter-rate", type=float, default=1.0, help="Tape counter increments per second (default: 1.0)")
 parser.add_argument("--leader-gap", type=int, default=10, help="Leader gap before first track in seconds (default: 10)")
+parser.add_argument("--normalization", type=str, default="lufs", choices=["peak", "lufs"], help="Normalization method: 'peak' or 'lufs' (default: lufs)")
+parser.add_argument("--target-lufs", type=float, default=-14.0, help="Target LUFS level for LUFS normalization (default: -14.0)")
+parser.add_argument("--audio-latency", type=float, default=0.0, help="Audio latency compensation in seconds for VU meter sync (default: 0.0, try 0.1-0.5 if audio lags behind meters)")
 args = parser.parse_args()
 
 TRACK_GAP_SECONDS = args.track_gap
@@ -74,6 +84,9 @@ TOTAL_DURATION_MINUTES = args.duration
 TARGET_FOLDER = args.folder
 COUNTER_RATE = args.counter_rate
 LEADER_GAP_SECONDS = args.leader_gap
+NORMALIZATION_METHOD = args.normalization
+TARGET_LUFS = args.target_lufs
+AUDIO_LATENCY = args.audio_latency
 
 # Add /usr/sbin to PATH for ffmpeg/ffprobe/ffplay if present
 os.environ["PATH"] += os.pathsep + "/usr/sbin"
@@ -297,6 +310,87 @@ def get_audio_level_at_time(levels, elapsed_ms):
     return levels[-1][1], levels[-1][2]
 
 
+def normalize_lufs(audio_segment, target_lufs=-14.0):
+    """
+    Normalize audio to target LUFS level using pyloudnorm.
+    This ensures consistent perceived loudness across tracks.
+    """
+    if not PYLOUDNORM_AVAILABLE:
+        return audio_segment.normalize()  # Fallback to peak normalization
+    
+    # Convert AudioSegment to numpy array
+    samples = np.array(audio_segment.get_array_of_samples())
+    
+    # Handle stereo
+    if audio_segment.channels == 2:
+        samples = samples.reshape((-1, 2))
+    else:
+        samples = samples.reshape((-1, 1))
+    
+    # Normalize to float32 [-1.0, 1.0]
+    samples = samples.astype(np.float32) / (2 ** (audio_segment.sample_width * 8 - 1))
+    
+    # Initialize loudness meter
+    meter = pyln.Meter(audio_segment.frame_rate)
+    
+    # Measure loudness
+    loudness = meter.integrated_loudness(samples)
+    
+    # Normalize audio to target LUFS
+    normalized_samples = pyln.normalize.loudness(samples, loudness, target_lufs)
+    
+    # Convert back to int16/int32
+    max_val = 2 ** (audio_segment.sample_width * 8 - 1) - 1
+    normalized_samples = np.clip(normalized_samples * max_val, -max_val, max_val)
+    normalized_samples = normalized_samples.astype(np.int16 if audio_segment.sample_width == 2 else np.int32)
+    
+    # Flatten for mono or keep shape for stereo
+    if audio_segment.channels == 1:
+        normalized_samples = normalized_samples.flatten()
+    
+    # Create new AudioSegment
+    normalized_audio = AudioSegment(
+        normalized_samples.tobytes(),
+        frame_rate=audio_segment.frame_rate,
+        sample_width=audio_segment.sample_width,
+        channels=audio_segment.channels
+    )
+    
+    return normalized_audio
+
+
+def calculate_loudness(audio_segment):
+    """
+    Calculate integrated loudness (LUFS) of an audio segment.
+    Returns None if pyloudnorm is not available.
+    """
+    if not PYLOUDNORM_AVAILABLE:
+        return None
+    
+    try:
+        # Convert AudioSegment to numpy array
+        samples = np.array(audio_segment.get_array_of_samples())
+        
+        # Handle stereo
+        if audio_segment.channels == 2:
+            samples = samples.reshape((-1, 2))
+        else:
+            samples = samples.reshape((-1, 1))
+        
+        # Normalize to float32 [-1.0, 1.0]
+        samples = samples.astype(np.float32) / (2 ** (audio_segment.sample_width * 8 - 1))
+        
+        # Initialize loudness meter
+        meter = pyln.Meter(audio_segment.frame_rate)
+        
+        # Measure loudness
+        loudness = meter.integrated_loudness(samples)
+        
+        return loudness
+    except Exception:
+        return None
+
+
 def get_ffprobe_info(filepath):
     """Return duration (seconds), codec (first audio codec found), bitrate_kbps or 'Unknown'."""
     try:
@@ -348,17 +442,36 @@ def list_tracks(folder):
 
 
 def normalize_tracks(tracks, folder, stdscr=None):
-    """Normalize all tracks and return list of dicts with keys: name, path, audio, dBFS
+    """Normalize all tracks and return list of dicts with keys: name, path, audio, dBFS, loudness, method
     Skips normalization if normalized file exists.
+    Supports both peak and LUFS normalization.
     """
+    # Check if LUFS normalization is requested but not available
+    if NORMALIZATION_METHOD == "lufs" and not PYLOUDNORM_AVAILABLE:
+        if stdscr:
+            stdscr.clear()
+            safe_addstr(stdscr, 0, 0, "ERROR: LUFS normalization requires pyloudnorm", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+            safe_addstr(stdscr, 1, 0, "Install with: pip install pyloudnorm", curses.color_pair(COLOR_YELLOW))
+            safe_addstr(stdscr, 2, 0, "Falling back to peak normalization...", curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, 3, 0, "Press any key to continue.", curses.color_pair(COLOR_WHITE))
+            stdscr.refresh()
+            stdscr.nodelay(False)
+            stdscr.getch()
+            stdscr.nodelay(True)
+        method = "peak"
+    else:
+        method = NORMALIZATION_METHOD
+    
     normalized_dir = os.path.join(folder, "normalized")
     os.makedirs(normalized_dir, exist_ok=True)
     normalized_tracks = []
+    
     for i, track in enumerate(tracks):
         src_path = os.path.join(folder, track['name'])
-        # normalized filename keeps original name but uses .normalized.wav suffix
-        norm_name = f"{track['name']}.normalized.wav"
+        # normalized filename includes method to distinguish between normalizations
+        norm_name = f"{track['name']}.{method}.normalized.wav"
         norm_path = os.path.join(normalized_dir, norm_name)
+        
         if os.path.exists(norm_path):
             audio = AudioSegment.from_file(norm_path)
             if stdscr:
@@ -367,22 +480,56 @@ def normalize_tracks(tracks, folder, stdscr=None):
                 safe_addstr(stdscr, 1, 0, "Analyzing waveform...", curses.color_pair(COLOR_GREEN))
                 stdscr.refresh()
             audio_levels = analyze_audio_levels(audio, chunk_duration_ms=50)
-            normalized_tracks.append({'name': track['name'], 'audio': audio, 'path': norm_path, 'dBFS': audio.dBFS, 'audio_levels': audio_levels})
+            # Calculate loudness for display
+            loudness = calculate_loudness(audio) if method == "lufs" and PYLOUDNORM_AVAILABLE else None
+            normalized_tracks.append({
+                'name': track['name'], 
+                'audio': audio, 
+                'path': norm_path, 
+                'dBFS': audio.dBFS, 
+                'loudness': loudness,
+                'audio_levels': audio_levels,
+                'method': method
+            })
             continue
+        
         # Show progress in curses (if provided)
         if stdscr:
             stdscr.clear()
-            safe_addstr(stdscr, 0, 0, f"Normalizing {i+1}/{len(tracks)}: {track['name']}", curses.color_pair(COLOR_YELLOW))
+            method_name = "LUFS" if method == "lufs" else "Peak"
+            safe_addstr(stdscr, 0, 0, f"Normalizing ({method_name}) {i+1}/{len(tracks)}: {track['name']}", curses.color_pair(COLOR_YELLOW))
             safe_addstr(stdscr, 1, 0, "(This may take a few seconds per file)", curses.color_pair(COLOR_CYAN))
+            if method == "lufs":
+                safe_addstr(stdscr, 2, 0, f"Target: {TARGET_LUFS} LUFS", curses.color_pair(COLOR_MAGENTA))
             stdscr.refresh()
+        
         audio = AudioSegment.from_file(src_path)
-        normalized_audio = audio.normalize()
+        
+        # Apply normalization based on method
+        if method == "lufs" and PYLOUDNORM_AVAILABLE:
+            normalized_audio = normalize_lufs(audio, TARGET_LUFS)
+            loudness = calculate_loudness(normalized_audio)
+        else:
+            normalized_audio = audio.normalize()
+            loudness = None
+        
         normalized_audio.export(norm_path, format="wav")
+        
         if stdscr:
-            safe_addstr(stdscr, 2, 0, "Analyzing waveform...", curses.color_pair(COLOR_GREEN))
+            safe_addstr(stdscr, 3, 0, "Analyzing waveform...", curses.color_pair(COLOR_GREEN))
             stdscr.refresh()
+        
         audio_levels = analyze_audio_levels(normalized_audio, chunk_duration_ms=50)
-        normalized_tracks.append({'name': track['name'], 'audio': normalized_audio, 'path': norm_path, 'dBFS': normalized_audio.dBFS, 'audio_levels': audio_levels})
+        normalized_tracks.append({
+            'name': track['name'], 
+            'audio': normalized_audio, 
+            'path': norm_path, 
+            'dBFS': normalized_audio.dBFS,
+            'loudness': loudness,
+            'audio_levels': audio_levels,
+            'method': method
+        })
+    
     return normalized_tracks
 
 
@@ -428,9 +575,10 @@ def show_normalization_summary(stdscr, normalized_tracks):
     preview_proc = None
     seek_position = 0.0  # Current seek position in seconds
     play_start_time = None  # When playback started
+    playback_start_time = None  # Absolute time when current track playback started
     
     def stop_preview():
-        nonlocal preview_proc, playing, seek_position, play_start_time, playing_track_idx
+        nonlocal preview_proc, playing, seek_position, play_start_time, playing_track_idx, playback_start_time
         if preview_proc is not None and preview_proc.poll() is None:
             # Calculate current position before stopping
             if play_start_time is not None:
@@ -441,9 +589,10 @@ def show_normalization_summary(stdscr, normalized_tracks):
         playing = False
         playing_track_idx = -1
         play_start_time = None
+        playback_start_time = None
     
     def start_preview(idx, start_pos=0.0):
-        nonlocal preview_proc, playing, playing_track_idx, seek_position, play_start_time
+        nonlocal preview_proc, playing, playing_track_idx, seek_position, play_start_time, playback_start_time
         stop_preview()
         playing_track_idx = idx
         seek_position = max(0.0, start_pos)
@@ -461,6 +610,7 @@ def show_normalization_summary(stdscr, normalized_tracks):
         ])
         playing = True
         play_start_time = time.time()
+        playback_start_time = time.time()
     
     stdscr.nodelay(True)
     
@@ -478,11 +628,43 @@ def show_normalization_summary(stdscr, normalized_tracks):
         safe_addstr(stdscr, 1, 15, "NORMALIZATION COMPLETE - PREVIEW MODE", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
         safe_addstr(stdscr, 2, 0, "═" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
         
-        # Track list
-        safe_addstr(stdscr, 4, 0, "TRACK LIST AND dBFS LEVELS:", curses.color_pair(COLOR_YELLOW))
+        # VU Meters at top (always visible)
+        meter_y = 4
+        if playing:
+            # Calculate current playback position with latency compensation
+            current_pos = seek_position
+            if play_start_time is not None:
+                current_pos += time.time() - play_start_time - AUDIO_LATENCY
+            track_duration = normalized_tracks[playing_track_idx]['audio'].duration_seconds
+            
+            # Get audio levels from pre-analyzed data
+            elapsed_ms = int(current_pos * 1000)
+            level_l, level_r = get_audio_level_at_time(normalized_tracks[playing_track_idx]['audio_levels'], elapsed_ms)
+            
+            status_text = f"NOW PLAYING: {normalized_tracks[playing_track_idx]['name']}"
+            position_text = f"Position: {format_duration(current_pos)} / {format_duration(track_duration)}"
+            safe_addstr(stdscr, meter_y, 0, status_text, curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+            safe_addstr(stdscr, meter_y + 1, 0, position_text, curses.color_pair(COLOR_YELLOW))
+        else:
+            level_l, level_r = 0.0, 0.0
+            safe_addstr(stdscr, meter_y, 0, "Ready to preview tracks", curses.color_pair(COLOR_WHITE))
+        
+        safe_addstr(stdscr, meter_y + 2, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+        draw_vu_meter(stdscr, meter_y + 3, 2, level_l, max_width=40, label="L")
+        # dB scale between meters
+        db_scale = "    -60  -40  -30  -20  -12   -6   -3    0 dB"
+        safe_addstr(stdscr, meter_y + 4, 2, db_scale, curses.color_pair(COLOR_YELLOW))
+        draw_vu_meter(stdscr, meter_y + 5, 2, level_r, max_width=40, label="R")
+        safe_addstr(stdscr, meter_y + 6, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+        
+        # Track list with method indicator
+        tracklist_y = meter_y + 8
+        method = normalized_tracks[0].get('method', 'peak') if normalized_tracks else 'peak'
+        method_label = "LUFS" if method == "lufs" else "Peak dBFS"
+        safe_addstr(stdscr, tracklist_y, 0, f"TRACK LIST ({method_label} Normalization):", curses.color_pair(COLOR_YELLOW))
         
         for i, track in enumerate(normalized_tracks):
-            if i + 5 >= max_y - 10:  # Leave room for footer
+            if tracklist_y + 1 + i >= max_y - 10:  # Leave room for footer
                 break
             
             is_current = i == current_track_idx
@@ -503,29 +685,17 @@ def show_normalization_summary(stdscr, normalized_tracks):
                 color = COLOR_CYAN
                 attr = 0
             
-            track_line = f"{cursor_marker} {i+1:02d}. {track['name']} - dBFS: {track['dBFS']:.2f}{play_marker}"
-            safe_addstr(stdscr, 5 + i, 0, track_line, curses.color_pair(color) | attr)
+            # Show appropriate level info
+            if track.get('method') == 'lufs' and track.get('loudness') is not None:
+                level_info = f"LUFS: {track['loudness']:.1f} | dBFS: {track['dBFS']:.2f}"
+            else:
+                level_info = f"dBFS: {track['dBFS']:.2f}"
+            
+            track_line = f"{cursor_marker} {i+1:02d}. {track['name']} - {level_info}{play_marker}"
+            safe_addstr(stdscr, tracklist_y + 1 + i, 0, track_line, curses.color_pair(color) | attr)
         
-        # Status line
-        status_y = 6 + min(len(normalized_tracks), max_y - 17)
-        safe_addstr(stdscr, status_y, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
-        
-        if playing:
-            # Calculate current playback position
-            current_pos = seek_position
-            if play_start_time is not None:
-                current_pos += time.time() - play_start_time
-            track_duration = normalized_tracks[playing_track_idx]['audio'].duration_seconds
-            status_text = f"NOW PLAYING: {normalized_tracks[playing_track_idx]['name']}"
-            position_text = f"Position: {format_duration(current_pos)} / {format_duration(track_duration)}"
-            safe_addstr(stdscr, status_y + 1, 0, status_text, curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-            safe_addstr(stdscr, status_y + 2, 0, position_text, curses.color_pair(COLOR_YELLOW))
-        else:
-            safe_addstr(stdscr, status_y + 1, 0, "Ready to preview tracks", curses.color_pair(COLOR_WHITE))
-            safe_addstr(stdscr, status_y + 2, 0, "", curses.color_pair(COLOR_WHITE))
-        
-        # Controls
-        footer_y = status_y + 4
+        # Controls footer
+        footer_y = tracklist_y + 2 + min(len(normalized_tracks), max_y - tracklist_y - 12)
         safe_addstr(stdscr, footer_y, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
         safe_addstr(stdscr, footer_y + 1, 0, "CONTROLS:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
         safe_addstr(stdscr, footer_y + 2, 0, "  ↑/↓: Navigate  ", curses.color_pair(COLOR_WHITE))
@@ -623,6 +793,100 @@ def show_normalization_summary(stdscr, normalized_tracks):
 
 def prep_countdown(stdscr, seconds=10):
     """Show a cancellable countdown. Return True to proceed, False to cancel."""
+    # Big ASCII numbers for countdown
+    big_numbers = {
+        '0': [
+            "  ████████  ",
+            " ██      ██ ",
+            "██        ██",
+            "██        ██",
+            "██        ██",
+            " ██      ██ ",
+            "  ████████  "
+        ],
+        '1': [
+            "    ██    ",
+            "  ████    ",
+            "    ██    ",
+            "    ██    ",
+            "    ██    ",
+            "    ██    ",
+            "  ██████  "
+        ],
+        '2': [
+            "  ████████  ",
+            " ██      ██ ",
+            "         ██ ",
+            "   ███████  ",
+            " ██         ",
+            " ██         ",
+            " ███████████"
+        ],
+        '3': [
+            "  ████████  ",
+            " ██      ██ ",
+            "         ██ ",
+            "   ███████  ",
+            "         ██ ",
+            " ██      ██ ",
+            "  ████████  "
+        ],
+        '4': [
+            " ██      ██ ",
+            " ██      ██ ",
+            " ██      ██ ",
+            " ███████████",
+            "         ██ ",
+            "         ██ ",
+            "         ██ "
+        ],
+        '5': [
+            " ███████████",
+            " ██         ",
+            " ██         ",
+            " ██████████ ",
+            "         ██ ",
+            " ██      ██ ",
+            "  ████████  "
+        ],
+        '6': [
+            "  ████████  ",
+            " ██      ██ ",
+            " ██         ",
+            " ██████████ ",
+            " ██      ██ ",
+            " ██      ██ ",
+            "  ████████  "
+        ],
+        '7': [
+            " ███████████",
+            "         ██ ",
+            "        ██  ",
+            "       ██   ",
+            "      ██    ",
+            "     ██     ",
+            "    ██      "
+        ],
+        '8': [
+            "  ████████  ",
+            " ██      ██ ",
+            " ██      ██ ",
+            "  ████████  ",
+            " ██      ██ ",
+            " ██      ██ ",
+            "  ████████  "
+        ],
+        '9': [
+            "  ████████  ",
+            " ██      ██ ",
+            " ██      ██ ",
+            "  ██████████",
+            "         ██ ",
+            " ██      ██ ",
+            "  ████████  "
+        ]
+    }
+    
     stdscr.nodelay(True)
     max_y, max_x = stdscr.getmaxyx()
     
@@ -632,26 +896,30 @@ def prep_countdown(stdscr, seconds=10):
         stdscr.clear()
         stdscr.refresh()
         
-        # Simple countdown without cassette art to avoid overlap
-        countdown_y = max_y // 2 - 3
-        box_width = min(70, max_x - 2)
+        countdown_y = max_y // 2 - 6
         
-        # Draw top border
-        safe_addstr(stdscr, countdown_y, 0, "╔" + "═" * (box_width - 2) + "╗", curses.color_pair(COLOR_MAGENTA))
+        # Draw title
+        title_str = "DECK PREP COUNTDOWN"
+        title_x = max(0, (max_x - len(title_str)) // 2)
+        safe_addstr(stdscr, countdown_y, title_x, title_str, curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
         
-        # Draw countdown text centered in box
-        count_str = f"DECK PREP COUNTDOWN: {s:02d}"
-        x_pos = max(1, (box_width - len(count_str)) // 2)
-        safe_addstr(stdscr, countdown_y + 1, 0, "║" + " " * (box_width - 2) + "║", curses.color_pair(COLOR_MAGENTA))
-        safe_addstr(stdscr, countdown_y + 1, x_pos, count_str, curses.color_pair(COLOR_YELLOW) | curses.A_BOLD | curses.A_BLINK)
+        # Draw big number
+        num_str = f"{s:02d}"
+        num_lines = big_numbers[num_str[0]]
+        total_width = len(num_lines[0]) * 2 + 3  # Two digits + spacing
+        start_x = max(0, (max_x - total_width) // 2)
         
-        # Draw bottom border
-        safe_addstr(stdscr, countdown_y + 2, 0, "╚" + "═" * (box_width - 2) + "╝", curses.color_pair(COLOR_MAGENTA))
+        for i, line in enumerate(num_lines):
+            y_pos = countdown_y + 2 + i
+            # Draw first digit
+            safe_addstr(stdscr, y_pos, start_x, line, curses.color_pair(COLOR_YELLOW) | curses.A_BOLD | curses.A_BLINK)
+            # Draw second digit
+            safe_addstr(stdscr, y_pos, start_x + len(line) + 3, big_numbers[num_str[1]][i], curses.color_pair(COLOR_YELLOW) | curses.A_BOLD | curses.A_BLINK)
         
         # Instructions
         instr_str = "Press Q to cancel and return to menu."
-        instr_x = max(0, (box_width - len(instr_str)) // 2)
-        safe_addstr(stdscr, countdown_y + 4, instr_x, instr_str, curses.color_pair(COLOR_WHITE))
+        instr_x = max(0, (max_x - len(instr_str)) // 2)
+        safe_addstr(stdscr, countdown_y + 11, instr_x, instr_str, curses.color_pair(COLOR_WHITE))
         stdscr.refresh()
         # allow immediate cancel
         for _ in range(10):
@@ -780,7 +1048,8 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             
             # VU Meters - real audio levels from waveform analysis (below counter)
             meter_y = title_y + 8
-            elapsed_ms = int(track_elapsed * 1000)
+            # Apply latency compensation to delay meters and match audio output
+            elapsed_ms = int((track_elapsed - AUDIO_LATENCY) * 1000)
             level_l, level_r = get_audio_level_at_time(track['audio_levels'], elapsed_ms)
             safe_addstr(stdscr, meter_y, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
             draw_vu_meter(stdscr, meter_y + 1, 2, level_l, max_width=50, label="L")
@@ -828,12 +1097,19 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             # Footer (with boundary checking)
             footer_y = tracks_y + 1 + (len(normalized_tracks) * 3) + 1
             max_y, max_x = stdscr.getmaxyx()
-            if footer_y < max_y - 4:
+            if footer_y < max_y - 5:
                 safe_addstr(stdscr, footer_y, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
-                safe_addstr(stdscr, footer_y + 1, 0, f"TOTAL: {format_duration(elapsed)}/{format_duration(total_time)}", curses.color_pair(COLOR_YELLOW))
-                safe_addstr(stdscr, footer_y + 3, 0, "Press ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, footer_y + 3, 6, "Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
-                safe_addstr(stdscr, footer_y + 3, 7, " to quit to main menu.", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, footer_y + 1, 0, f"TOTAL RECORDING TIME: {format_duration(elapsed)}/{format_duration(total_time)}", curses.color_pair(COLOR_YELLOW))
+                # Total progress bar
+                bar_len = 60
+                total_progress = min(int(bar_len * (elapsed / max(1, total_time))), bar_len)
+                safe_addstr(stdscr, footer_y + 2, 0, "[", curses.color_pair(COLOR_CYAN))
+                safe_addstr(stdscr, footer_y + 2, 1, "█" * total_progress, curses.color_pair(COLOR_YELLOW))
+                safe_addstr(stdscr, footer_y + 2, 1 + total_progress, "░" * (bar_len - total_progress), curses.color_pair(COLOR_BLUE))
+                safe_addstr(stdscr, footer_y + 2, 1 + bar_len, "]", curses.color_pair(COLOR_CYAN))
+                safe_addstr(stdscr, footer_y + 4, 0, "Press ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, footer_y + 4, 6, "Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                safe_addstr(stdscr, footer_y + 4, 7, " to quit to main menu.", curses.color_pair(COLOR_WHITE))
             stdscr.refresh()
             
             last_counter = current_counter
@@ -911,6 +1187,8 @@ def main_menu(folder):
         previewing_index = -1  # Track which file is being previewed
         seek_position = 0.0  # Current seek position in seconds
         play_start_time = None  # When playback started
+        preview_audio_levels = None  # Pre-analyzed audio levels for preview
+        preview_audio_segment = None  # AudioSegment for current preview
         
         while True:
             max_y, max_x = stdscr.getmaxyx()
@@ -924,9 +1202,37 @@ def main_menu(folder):
                 header_y = 0
             
             safe_addstr(stdscr, header_y, 0, "═" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
-            safe_addstr(stdscr, header_y + 1, 20, "AUDIO PLAYER MENU", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+            safe_addstr(stdscr, header_y + 1, 20, "TAPE DECK PREP MENU", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
             safe_addstr(stdscr, header_y + 2, 0, "═" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
-            safe_addstr(stdscr, header_y + 3, 0, "TRACKS IN FOLDER:", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+            
+            # VU Meters at top (always visible)
+            meter_y = header_y + 4
+            if previewing_index >= 0 and play_start_time is not None:
+                current_pos = seek_position + (time.time() - play_start_time) - AUDIO_LATENCY
+                track_duration = tracks[previewing_index]['duration']
+                position_text = f"Playing: {format_duration(current_pos)} / {format_duration(track_duration)}"
+                safe_addstr(stdscr, meter_y, 0, position_text, curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                
+                # Get audio levels if available
+                if preview_audio_levels is not None:
+                    elapsed_ms = int(current_pos * 1000)
+                    level_l, level_r = get_audio_level_at_time(preview_audio_levels, elapsed_ms)
+                else:
+                    level_l, level_r = 0.0, 0.0
+            else:
+                level_l, level_r = 0.0, 0.0
+                safe_addstr(stdscr, meter_y, 0, "No preview playing", curses.color_pair(COLOR_WHITE))
+            
+            safe_addstr(stdscr, meter_y + 1, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+            draw_vu_meter(stdscr, meter_y + 2, 2, level_l, max_width=40, label="L")
+            # dB scale between meters
+            db_scale = "    -60  -40  -30  -20  -12   -6   -3    0 dB"
+            safe_addstr(stdscr, meter_y + 3, 2, db_scale, curses.color_pair(COLOR_YELLOW))
+            draw_vu_meter(stdscr, meter_y + 4, 2, level_r, max_width=40, label="R")
+            safe_addstr(stdscr, meter_y + 5, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+            
+            tracklist_y = meter_y + 7
+            safe_addstr(stdscr, tracklist_y, 0, f"TRACKS IN FOLDER ({folder}):", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
             
             # Check if preview is still playing
             if previewing_index >= 0:
@@ -934,10 +1240,10 @@ def main_menu(folder):
                     previewing_index = -1  # Preview ended
                     play_start_time = None
             
-            track_start_y = header_y + 4
+            track_start_y = tracklist_y + 1
             for i, track in enumerate(tracks):
                 track_y = track_start_y + i
-                if track_y >= max_y - 10:  # Leave room for footer
+                if track_y >= max_y - 8:  # Leave room for footer
                     break
                 selected_marker = "●" if track in selected_tracks else "○"
                 highlight_marker = "▶" if i == current_index else " "
@@ -981,44 +1287,37 @@ def main_menu(folder):
                 # Footer info
                 footer_y = current_y + 1
                 total_duration_str = format_duration(total_selected_duration)
-                info_line = f"Total: {total_duration_str} | Leader: {LEADER_GAP_SECONDS}s | Gap: {TRACK_GAP_SECONDS}s | Max: {format_duration(TOTAL_DURATION_MINUTES * 60)}"
+                info_line = f"Total Recording Time: {total_duration_str} | Tape Leader Gap: {LEADER_GAP_SECONDS}s | Track Gap: {TRACK_GAP_SECONDS}s | Tape Length: {format_duration(TOTAL_DURATION_MINUTES * 60)}"
                 safe_addstr(stdscr, footer_y, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
                 safe_addstr(stdscr, footer_y + 1, 0, info_line, curses.color_pair(COLOR_CYAN))
                 
-                # Playback status
-                if previewing_index >= 0 and play_start_time is not None:
-                    current_pos = seek_position + (time.time() - play_start_time)
-                    track_duration = tracks[previewing_index]['duration']
-                    position_text = f"Playing: {format_duration(current_pos)} / {format_duration(track_duration)}"
-                    safe_addstr(stdscr, footer_y + 2, 0, position_text, curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-                else:
-                    safe_addstr(stdscr, footer_y + 2, 0, " " * min(70, max_x - 2), 0)
+                # Controls
+                controls_y = footer_y + 2
+                safe_addstr(stdscr, controls_y, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+                safe_addstr(stdscr, controls_y + 1, 0, "CONTROLS:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 2, 0, "  ↑/↓:Nav  Space:Select  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 2, 25, "P", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 2, 26, ":Play  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 2, 33, "X", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 2, 34, ":Stop", curses.color_pair(COLOR_WHITE))
                 
-                safe_addstr(stdscr, footer_y + 3, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
-                safe_addstr(stdscr, footer_y + 4, 0, "CONTROLS:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
-                safe_addstr(stdscr, footer_y + 5, 0, "  ↑/↓:Nav  Space:Select  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, footer_y + 5, 25, "P", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-                safe_addstr(stdscr, footer_y + 5, 26, ":Play  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, footer_y + 5, 33, "X", curses.color_pair(COLOR_RED) | curses.A_BOLD)
-                safe_addstr(stdscr, footer_y + 5, 34, ":Stop", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 3, 0, "  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 3, 2, "←", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 3, 3, ":Rewind 10s  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 3, 17, "→", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 3, 18, ":Forward 10s", curses.color_pair(COLOR_WHITE))
                 
-                safe_addstr(stdscr, footer_y + 6, 0, "  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, footer_y + 6, 2, "←", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                safe_addstr(stdscr, footer_y + 6, 3, ":Rewind 10s  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, footer_y + 6, 17, "→", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                safe_addstr(stdscr, footer_y + 6, 18, ":Forward 10s", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 4, 0, "  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 4, 2, "[", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 4, 3, ":Prev Track  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 4, 17, "]", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 4, 18, ":Next Track", curses.color_pair(COLOR_WHITE))
                 
-                safe_addstr(stdscr, footer_y + 7, 0, "  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, footer_y + 7, 2, "[", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
-                safe_addstr(stdscr, footer_y + 7, 3, ":Prev Track  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, footer_y + 7, 17, "]", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
-                safe_addstr(stdscr, footer_y + 7, 18, ":Next Track", curses.color_pair(COLOR_WHITE))
-                
-                safe_addstr(stdscr, footer_y + 8, 0, "  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, footer_y + 8, 2, "ENTER", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-                safe_addstr(stdscr, footer_y + 8, 7, ":Record  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, footer_y + 8, 17, "Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
-                safe_addstr(stdscr, footer_y + 8, 18, ":Quit", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 5, 0, "  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 5, 2, "ENTER", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 5, 7, ":Record  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 5, 17, "Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 5, 18, ":Quit", curses.color_pair(COLOR_WHITE))
             stdscr.refresh()
 
             key = stdscr.getch()
@@ -1070,6 +1369,14 @@ def main_menu(folder):
                         # Reset seek position and start playback from beginning when switching tracks
                         if current_index != previewing_index:
                             seek_position = 0.0
+                            # Load and analyze audio for VU meters
+                            track_path = os.path.join(folder, tracks[current_index]['name'])
+                            try:
+                                preview_audio_segment = AudioSegment.from_file(track_path)
+                                preview_audio_levels = analyze_audio_levels(preview_audio_segment, chunk_duration_ms=50)
+                            except:
+                                preview_audio_segment = None
+                                preview_audio_levels = None
                         # Start playback
                         track_path = os.path.join(folder, tracks[current_index]['name'])
                         play_audio(track_path, seek_position)
@@ -1084,6 +1391,8 @@ def main_menu(folder):
                     seek_position = 0.0
                     play_start_time = None
                     paused = False
+                    preview_audio_levels = None
+                    preview_audio_segment = None
                 elif key in (curses.KEY_LEFT, ord('h')):
                     # Rewind 10 seconds in current track
                     if previewing_index >= 0 and ffplay_proc is not None and ffplay_proc.poll() is None:
@@ -1118,6 +1427,13 @@ def main_menu(folder):
                     current_index = (current_index - 1) % len(tracks)
                     seek_position = 0.0
                     track_path = os.path.join(folder, tracks[current_index]['name'])
+                    # Load and analyze audio for VU meters
+                    try:
+                        preview_audio_segment = AudioSegment.from_file(track_path)
+                        preview_audio_levels = analyze_audio_levels(preview_audio_segment, chunk_duration_ms=50)
+                    except:
+                        preview_audio_segment = None
+                        preview_audio_levels = None
                     play_audio(track_path)
                     previewing_index = current_index
                     play_start_time = time.time()
@@ -1129,6 +1445,13 @@ def main_menu(folder):
                     current_index = (current_index + 1) % len(tracks)
                     seek_position = 0.0
                     track_path = os.path.join(folder, tracks[current_index]['name'])
+                    # Load and analyze audio for VU meters
+                    try:
+                        preview_audio_segment = AudioSegment.from_file(track_path)
+                        preview_audio_levels = analyze_audio_levels(preview_audio_segment, chunk_duration_ms=50)
+                    except:
+                        preview_audio_segment = None
+                        preview_audio_levels = None
                     play_audio(track_path)
                     previewing_index = current_index
                     play_start_time = time.time()
