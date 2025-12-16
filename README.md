@@ -3,59 +3,50 @@
 A nostalgic cassette tape recording utility with. Perfect for mixtapes nerd curated playlists to physical cassette tapes with professional-quality preparation and timing control.
 
 ```
- /=======================================================q\
-|:@-                                                     #+|
-| '   /==============================================\     |
-|   ./                                                \,   |
-|  :'                                                  `;  |
-|  |                                                    |  |
-|  |                                                    |  |
-|  |                                                    |  |
-|  |          ._____________________________,           |  |
-|  |        ./Lm=\_   mmmmmr======qmm   _m=\Jq          |  |
-|  |        /W'`' *b  ######      W##  d'`' *bt         |  |
-|  |       :\@'    M, ######|     ### :@!    V/,        |  |
-|  |        PW     @! ######b_____### `W_    @@         |  |
-|  |        |/#_,LZ! .d_!!! t|,!! !!d  !@L,mZt!         |  |
-|  |         `=\XX___JXX____JXL_____X_____J+='          |  |
-|  |                                                    |  |
-|  |                                                    |  |
-#  |                                                    |  D,
-#  |                                                    |  ||
-#  `~~~~~~~XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX7~~~~~~~~'  ||
-#         /                                    |           ||
-#         |                 |#-                 |          ||
-#        :'                  '                  t          ||
-M        |          /~|              |~|        |          @
-|.L      /    |~\   \=!              !=!  :~Y,   |       jL|
-!(KL_____b____JGL__________________________GK____G_______8*
+ ___________________________________________
+|  _______________________________________  |
+| / .-----------------------------------. \ |
+| | | /\ :                        90 min| | |
+| | |/--\:....................... NR [ ]| | |
+| | `-----------------------------------' | |
+| |      //-\\   |         |   //-\\      | |
+| |     ||( )||  |_________|  ||( )||     | |
+| |      \\-//   :....:....:   \\-//      | |
+| |       _ _ ._  _ _ .__|_ _.._  _       | |
+| |      (_(_)| |(_(/_|  |_(_||_)(/_      | |
+| |               low noise   |           | |
+| `______ ____________________ ____ ______' |
+|        /    []             []    \        |
+|       /  ()                   ()  \       |
+!______/_____________________________\______!
 ```
 
 ## ✨ Features
 
-- 🎨 **Retro 80s UI** - Neon colors, ASCII art, and authentic cassette tape aesthetics
+- 🎨 **Retro 80s UI** - Neon colors, clean ASCII cassette art, and authentic tape deck aesthetics
 - 🔊 **Audio Normalization** - Consistent volume levels across all tracks (cached for speed)
   - Supports both **Peak** and **LUFS** normalization methods
   - LUFS normalization for broadcast-standard perceived loudness
   - Configurable target LUFS level (default: -14.0 LUFS)
-- 📟 **4-Digit Tape Counter** - Digital counter with configurable rate matching your deck
-- 📊 **Real-Time VU Meters** - Segmented block displays with actual audio waveform analysis (L/R channels)
+- 📟 **Digital 7-Segment Counter** - Large 4-digit counter display with configurable rate matching your deck
+- 📊 **Real-Time VU Meters** - Wide 50-character segmented block displays with actual audio waveform analysis (L/R channels)
   - **Persistent display** with dB scale (-60 to 0 dB) always visible
-  - Positioned at top of all screens for consistent monitoring
+  - Consistent 50-character width across all screens
   - Live audio level tracking during playback and recording
 - 🎚️ **Adaptive Level Scaling** - 95th percentile RMS normalization prevents constant peaking
 - 📼 **Leader Gap Support** - Configurable pre-roll for non-magnetic leader tape
-- ⏱️ **Duration Management** - Ensures tracks fit within cassette tape limits
+- ⏱️ **Duration Management** - Ensures tracks fit within cassette tape limits with visual warning
 - 🎵 **Advanced Track Preview** - VCR-style playback with seek, play/pause, and track switching
 - ⏪ **Seek Controls** - Rewind/forward 10 seconds during playback
-- 🎮 **Navigation While Playing** - Browse tracks while music continues in background
+- 🎮 **Smart Navigation** - Browse tracks (stops at first/last, no wraparound) while music continues in background
 - 📝 **Timestamped Tracklists** - Creates unique reference files with counter positions
 - ⏸️ **Configurable Track Gaps** - Set silence between tracks
-- 🎬 **Large ASCII Art Countdown** - Massive 7-line tall countdown display before recording
+- 🎬 **Large Digital Countdown** - Massive 7-segment style countdown with recording reminder
 - 📈 **Visual Progress Bars** - Real-time progress indicators for both tracks and total recording time
 - 🏷️ **Descriptive Labels** - Clear, self-explanatory UI labels (Track Gap, Tape Leader Gap, Total Recording Time, Tape Length)
 - 🔧 **Audio Latency Compensation** - Adjustable sync between VU meters and audio output for perfect timing
 - 📂 **Folder Path Display** - Shows current working folder in track list header
+- 🔴 **Capacity Warning** - Red blinking alert when track selection exceeds tape length
 
 ## 📋 Requirements
 
@@ -240,19 +231,19 @@ deckpreprec/
 ### Main Menu (Track Selection)
 | Key | Action |
 |-----|--------|
-| `↑` / `↓` | Navigate tracks (keeps current track playing) |
+| `↑` / `↓` / `K` / `J` | Navigate tracks (stops at first/last, keeps current track playing) |
 | `Space` | Select/deselect track for recording |
 | `P` | Play/Pause track (toggle playback) |
 | `X` | Stop playback and reset position |
 | `←` / `→` | Rewind/Forward 10 seconds (while playing) |
-| `[` / `]` | Jump to previous/next track and play |
+| `[` / `]` | Jump to previous/next track and play (stops at boundaries) |
 | `Enter` | Start recording process |
 | `Q` | Quit application |
 
 ### Normalization Preview Mode
 | Key | Action |
 |-----|--------|
-| `↑` / `↓` | Navigate tracks (keeps current track playing) |
+| `↑` / `↓` / `K` / `J` | Navigate tracks (keeps current track playing) |
 | `P` | Play/Pause track (toggle playback) |
 | `X` | Stop playback and reset position |
 | `←` / `→` | Rewind/Forward 10 seconds (while playing) |
@@ -290,18 +281,21 @@ deckpreprec/
    - Full playback controls available during preview
 
 4. **Deck Preparation**
-   - Press `Enter` to start **large ASCII art countdown** (7 lines tall)
-   - Set your cassette deck to RECORD mode
-   - Watch the massive countdown numbers
+   - Press `Enter` to start **large digital 7-segment countdown**
+   - **Important reminder displayed:** "PRESS RECORD ON YOUR DECK WHEN COUNTDOWN HITS 0"
+   - Prepare your cassette deck while countdown runs
+   - Watch the massive digital countdown numbers
    - Can cancel with `Q` if needed
 
 5. **Recording**
+   - **Press RECORD on your deck when countdown hits 0**
    - Leader gap countdown (default 10s for non-magnetic tape)
-   - Tape counter starts at 0000 during leader gap
+   - Large digital tape counter displayed prominently
+   - Counter starts incrementing from 0000 during leader gap
    - First track starts after leader gap
-   - **Monitor real-time VU meters at top** (L/R channels with dB scale)
+   - **Monitor real-time VU meters** (50-character width, L/R channels with dB scale)
    - **Visual progress bars** for current track and total recording time
-   - Watch tape counter and track progress
+   - Watch digital tape counter and track progress
    - Timestamped tracklist saved automatically
 
 6. **Reference Your Tracklist**
@@ -341,19 +335,26 @@ deckpreprec/
 ## 🎨 UI Design Details
 
 - **Neon Color Scheme:** Cyan, magenta, yellow, green, red, white
-- **ASCII Cassette Art:** Authentic tape graphics in menu and recording mode
-- **Digital Counter Display:** 4-digit LED-style counter with real-time updates
-- **Segmented VU Meters:** Block character displays (██) with full dB scale (-60 to 0 dB)
-  - Always visible at top of screen during all modes
+- **Clean ASCII Cassette Art:** Modern, detailed tape graphics with reels and label area
+- **Digital 7-Segment Counter:** Large 4-digit display with authentic LED calculator/digital watch style
+  - 7-line tall digits for excellent visibility
+  - "[TAPE COUNTER]" label for clarity
+  - Real-time updates during recording
+- **Wide Segmented VU Meters:** 50-character block displays (██) with full dB scale (-60 to 0 dB)
+  - Consistent width across all screens (normalization, main menu, recording)
+  - Always visible during playback and recording
   - Real-time stereo channel monitoring (L/R)
   - Color-coded zones for visual feedback
 - **Dynamic Color Zones:** White (0-85%) → Red (85-100%) peak indicators
 - **Waveform Analysis:** Pre-computed RMS levels with 50ms chunk resolution
 - **Retro Box Drawing:** Double-line borders and frames (╔═╗╚╝)
-- **Large ASCII Art Countdown:** Massive 7-line tall numbers with blink effect
+- **Large Digital Countdown:** Massive 7-segment style numbers (7 lines tall) with blink effect
+- **Recording Reminder:** Red blinking text during countdown: "PRESS RECORD ON YOUR DECK WHEN COUNTDOWN HITS 0"
 - **Progress Bars:** Color-coded bars (█ and ░) for track and total time
 - **Track Preview Indicator:** Musical note (♪) symbol for playing tracks
+- **Capacity Warning:** Red blinking highlight when track selection exceeds tape length
 - **Clear Labels:** Descriptive text throughout (no cryptic abbreviations)
+- **Smart Navigation:** Stops at list boundaries instead of wrapping around
 
 ## 📝 Configuration Tips
 
