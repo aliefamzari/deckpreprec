@@ -1501,10 +1501,12 @@ def main_menu(folder):
                     break
                 elif key in (curses.KEY_UP, ord('k')):
                     # Navigate without stopping playback
-                    current_index = (current_index - 1) % len(tracks)
+                    if current_index > 0:
+                        current_index -= 1
                 elif key in (curses.KEY_DOWN, ord('j')):
                     # Navigate without stopping playback
-                    current_index = (current_index + 1) % len(tracks)
+                    if current_index < len(tracks) - 1:
+                        current_index += 1
                 elif key == ord(' '):
                     track = tracks[current_index]
                     if track in selected_tracks:
@@ -1588,40 +1590,42 @@ def main_menu(folder):
                         play_start_time = time.time()
                 elif key in (ord('['), ord('{')):
                     # Previous track
-                    if ffplay_proc is not None and ffplay_proc.poll() is None:
-                        ffplay_proc.terminate()
-                        ffplay_proc = None
-                    current_index = (current_index - 1) % len(tracks)
-                    seek_position = 0.0
-                    track_path = os.path.join(folder, tracks[current_index]['name'])
-                    # Load and analyze audio for VU meters
-                    try:
-                        preview_audio_segment = AudioSegment.from_file(track_path)
-                        preview_audio_levels = analyze_audio_levels(preview_audio_segment, chunk_duration_ms=50)
-                    except:
-                        preview_audio_segment = None
-                        preview_audio_levels = None
-                    play_audio(track_path)
-                    previewing_index = current_index
-                    play_start_time = time.time()
+                    if current_index > 0:
+                        if ffplay_proc is not None and ffplay_proc.poll() is None:
+                            ffplay_proc.terminate()
+                            ffplay_proc = None
+                        current_index -= 1
+                        seek_position = 0.0
+                        track_path = os.path.join(folder, tracks[current_index]['name'])
+                        # Load and analyze audio for VU meters
+                        try:
+                            preview_audio_segment = AudioSegment.from_file(track_path)
+                            preview_audio_levels = analyze_audio_levels(preview_audio_segment, chunk_duration_ms=50)
+                        except:
+                            preview_audio_segment = None
+                            preview_audio_levels = None
+                        play_audio(track_path)
+                        previewing_index = current_index
+                        play_start_time = time.time()
                 elif key in (ord(']'), ord('}')):
                     # Next track
-                    if ffplay_proc is not None and ffplay_proc.poll() is None:
-                        ffplay_proc.terminate()
-                        ffplay_proc = None
-                    current_index = (current_index + 1) % len(tracks)
-                    seek_position = 0.0
-                    track_path = os.path.join(folder, tracks[current_index]['name'])
-                    # Load and analyze audio for VU meters
-                    try:
-                        preview_audio_segment = AudioSegment.from_file(track_path)
-                        preview_audio_levels = analyze_audio_levels(preview_audio_segment, chunk_duration_ms=50)
-                    except:
-                        preview_audio_segment = None
-                        preview_audio_levels = None
-                    play_audio(track_path)
-                    previewing_index = current_index
-                    play_start_time = time.time()
+                    if current_index < len(tracks) - 1:
+                        if ffplay_proc is not None and ffplay_proc.poll() is None:
+                            ffplay_proc.terminate()
+                            ffplay_proc = None
+                        current_index += 1
+                        seek_position = 0.0
+                        track_path = os.path.join(folder, tracks[current_index]['name'])
+                        # Load and analyze audio for VU meters
+                        try:
+                            preview_audio_segment = AudioSegment.from_file(track_path)
+                            preview_audio_levels = analyze_audio_levels(preview_audio_segment, chunk_duration_ms=50)
+                        except:
+                            preview_audio_segment = None
+                            preview_audio_levels = None
+                        play_audio(track_path)
+                        previewing_index = current_index
+                        play_start_time = time.time()
                 elif key in (curses.KEY_ENTER, 10, 13):
                     stdscr.nodelay(False)
                     # Stop ffplay if running before normalization
