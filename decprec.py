@@ -838,8 +838,9 @@ def write_deck_tracklist(normalized_tracks, track_gap, folder, counter_rate, lea
         start_time = current_time
         duration = int(round(track['audio'].duration_seconds))
         end_time = start_time + duration
-        counter_start = int(start_time * counter_rate)
-        counter_end = int(end_time * counter_rate)
+        # Use the actual counter logic for start/end
+        counter_start = calculate_tape_counter(start_time)
+        counter_end = calculate_tape_counter(end_time)
         lines.append(
             f"{idx+1:02d}. {track['name']}\n"
             f"    Start: {format_duration(start_time)}   End: {format_duration(end_time)}   Duration: {format_duration(duration)}\n"
