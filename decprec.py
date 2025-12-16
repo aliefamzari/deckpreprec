@@ -182,13 +182,11 @@ def draw_cassette_art(stdscr, y, x):
 
 def calculate_tape_counter(elapsed_seconds):
     """
-    Calculate tape counter based on realistic reel physics.
+    Calculate tape counter using linear rate model.
     
-    Models actual cassette tape behavior where counter is driven by take-up reel rotation.
-    As tape moves from supply to take-up reel:
-    - Supply reel diameter decreases
-    - Take-up reel diameter increases
-    - Counter rate changes non-linearly (faster at start, slower at end)
+    Uses a constant counter rate throughout the tape duration, matching
+    typical cassette deck counter behavior. The counter increments at a
+    steady rate regardless of tape position.
     
     Args:
         elapsed_seconds: Time elapsed in seconds
@@ -196,31 +194,8 @@ def calculate_tape_counter(elapsed_seconds):
     Returns:
         Integer counter value
     """
-    # Calculate how much tape has been consumed
-    tape_consumed = min(elapsed_seconds * TAPE_SPEED, TAPE_LENGTH)
-    
-    # Calculate take-up reel radius based on tape wound onto it
-    # Area of tape on take-up reel = tape consumed * thickness
-    tape_area_on_takeup = tape_consumed * TAPE_THICKNESS
-    # Radius = sqrt(hub_area + tape_area) = sqrt(pi*r_hub^2 + tape_area) / sqrt(pi)
-    takeup_radius = math.sqrt(HUB_RADIUS**2 + (tape_area_on_takeup / math.pi))
-    
-    # Counter is proportional to reel rotations
-    # Use integral of rotation = integral of (linear_speed / radius) over time
-    # For simplicity, use average radius approach with counter rate adjustment
-    # Counter increases faster when radius is smaller (beginning of tape)
-    
-    # Calculate counter using inverse relationship with radius
-    # Normalize to match user's counter_rate at middle of tape
-    mid_tape_length = TAPE_LENGTH / 2
-    mid_tape_area = mid_tape_length * TAPE_THICKNESS
-    mid_radius = math.sqrt(HUB_RADIUS**2 + (mid_tape_area / math.pi))
-    
-    # Counter value scales inversely with radius
-    # At beginning: small radius = fast counter
-    # At end: large radius = slow counter
-    counter_scale = mid_radius / takeup_radius
-    counter_value = elapsed_seconds * COUNTER_RATE * counter_scale
+    # Simple linear counter: counter increments at constant rate
+    counter_value = elapsed_seconds * COUNTER_RATE
     
     return int(counter_value)
 
