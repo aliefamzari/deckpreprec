@@ -250,17 +250,13 @@ def calculate_counter_manual(elapsed_seconds):
     # Sort checkpoints by time
     checkpoints = sorted(checkpoints, key=lambda x: x['time_seconds'])
     
-    # Before first checkpoint: extrapolate from first two points
+    # Before first checkpoint: extrapolate from 0,0 to first checkpoint
+    # Assumes tape counter was reset to 000 at the start of recording
     if elapsed_seconds <= checkpoints[0]['time_seconds']:
-        if len(checkpoints) >= 2:
-            t1, c1 = checkpoints[0]['time_seconds'], checkpoints[0]['counter']
-            t2, c2 = checkpoints[1]['time_seconds'], checkpoints[1]['counter']
-            rate = (c2 - c1) / (t2 - t1)
-            return int(c1 + rate * (elapsed_seconds - t1))
-        else:
-            # Single checkpoint: use its rate
-            rate = checkpoints[0]['counter'] / checkpoints[0]['time_seconds']
-            return int(elapsed_seconds * rate)
+        t1, c1 = checkpoints[0]['time_seconds'], checkpoints[0]['counter']
+        # Calculate rate from origin (0,0) to first checkpoint
+        rate = c1 / t1 if t1 > 0 else 0
+        return int(elapsed_seconds * rate)
     
     # After last checkpoint: extrapolate from last two points
     if elapsed_seconds >= checkpoints[-1]['time_seconds']:
