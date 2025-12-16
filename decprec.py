@@ -49,6 +49,7 @@ License: MIT
 """
 
 import os
+import sys
 import subprocess
 import json
 import signal
@@ -72,7 +73,10 @@ parser = argparse.ArgumentParser(description="Audio Player for Tape Recording")
 parser.add_argument("--track-gap", type=int, default=5, help="Gap between tracks in seconds (default: 5)")
 parser.add_argument("--duration", type=int, default=30, help="Maximum tape duration in minutes (default: 30)")
 parser.add_argument("--folder", type=str, default="./tracks", help="Folder with audio tracks")
-parser.add_argument("--counter-rate", type=float, default=1.0, help="Tape counter increments per second (default: 1.0)")
+parser.add_argument("--counter-rate", type=float, default=1.0, help="Tape counter increments per second for static mode (default: 1.0)")
+parser.add_argument("--counter-mode", type=str, default="static", choices=["manual", "auto", "static"], help="Counter calculation mode: 'manual' (calibrated), 'auto' (physics), 'static' (constant rate) (default: static)")
+parser.add_argument("--calibrate-counter", action="store_true", help="Run interactive counter calibration wizard")
+parser.add_argument("--counter-config", type=str, default="counter_calibration.json", help="Path to counter calibration config file for manual mode (default: counter_calibration.json)")
 parser.add_argument("--leader-gap", type=int, default=10, help="Leader gap before first track in seconds (default: 10)")
 parser.add_argument("--normalization", type=str, default="lufs", choices=["peak", "lufs"], help="Normalization method: 'peak' or 'lufs' (default: lufs)")
 parser.add_argument("--target-lufs", type=float, default=-14.0, help="Target LUFS level for LUFS normalization (default: -14.0)")
@@ -84,6 +88,8 @@ TRACK_GAP_SECONDS = args.track_gap
 TOTAL_DURATION_MINUTES = args.duration
 TARGET_FOLDER = args.folder
 COUNTER_RATE = args.counter_rate
+COUNTER_MODE = args.counter_mode
+COUNTER_CONFIG_PATH = args.counter_config
 LEADER_GAP_SECONDS = args.leader_gap
 NORMALIZATION_METHOD = args.normalization
 TARGET_LUFS = args.target_lufs
@@ -180,13 +186,31 @@ def draw_cassette_art(stdscr, y, x):
         except:
             pass
 
+# Global calibration data loaded from config file
+CALIBRATION_DATA = None
+
+def load_calibration_config(config_path):
+    """Load manual calibration data from JSON config file"""
+    try:
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                return json.load(f)
+        else:
+            print(f"Warning: Calibration file '{config_path}' not found.")
+            print("Run with --calibrate-counter to create calibration file.")
+            return None
+    except Exception as e:
+        print(f"Error loading calibration file: {e}")
+        return None
+
 def calculate_tape_counter(elapsed_seconds):
     """
-    Calculate tape counter using linear rate model.
+    Calculate tape counter based on selected mode.
     
-    Uses a constant counter rate throughout the tape duration, matching
-    typical cassette deck counter behavior. The counter increments at a
-    steady rate regardless of tape position.
+    Modes:
+    - 'manual': Uses user-calibrated checkpoints with interpolation
+    - 'auto': Physics-based simulation using reel mechanics
+    - 'static': Constant linear rate
     
     Args:
         elapsed_seconds: Time elapsed in seconds
@@ -194,10 +218,262 @@ def calculate_tape_counter(elapsed_seconds):
     Returns:
         Integer counter value
     """
-    # Simple linear counter: counter increments at constant rate
-    counter_value = elapsed_seconds * COUNTER_RATE
+    if COUNTER_MODE == "manual":
+        return calculate_counter_manual(elapsed_seconds)
+    elif COUNTER_MODE == "auto":
+        return calculate_counter_auto(elapsed_seconds)
+    else:  # static
+        return calculate_counter_static(elapsed_seconds)
+
+def calculate_counter_static(elapsed_seconds):
+    """
+    Static counter: constant rate throughout tape.
+    Simple linear calculation.
+    """
+    return int(elapsed_seconds * COUNTER_RATE)
+
+def calculate_counter_manual(elapsed_seconds):
+    """
+    Manual calibrated counter: interpolates between user-measured checkpoints.
+    Uses linear interpolation between calibration points.
+    """
+    global CALIBRATION_DATA
+    
+    if CALIBRATION_DATA is None:
+        # Fallback to static if no calibration data
+        return calculate_counter_static(elapsed_seconds)
+    
+    checkpoints = CALIBRATION_DATA.get('checkpoints', [])
+    if not checkpoints:
+        return calculate_counter_static(elapsed_seconds)
+    
+    # Sort checkpoints by time
+    checkpoints = sorted(checkpoints, key=lambda x: x['time_seconds'])
+    
+    # Before first checkpoint: extrapolate from first two points
+    if elapsed_seconds <= checkpoints[0]['time_seconds']:
+        if len(checkpoints) >= 2:
+            t1, c1 = checkpoints[0]['time_seconds'], checkpoints[0]['counter']
+            t2, c2 = checkpoints[1]['time_seconds'], checkpoints[1]['counter']
+            rate = (c2 - c1) / (t2 - t1)
+            return int(c1 + rate * (elapsed_seconds - t1))
+        else:
+            # Single checkpoint: use its rate
+            rate = checkpoints[0]['counter'] / checkpoints[0]['time_seconds']
+            return int(elapsed_seconds * rate)
+    
+    # After last checkpoint: extrapolate from last two points
+    if elapsed_seconds >= checkpoints[-1]['time_seconds']:
+        if len(checkpoints) >= 2:
+            t1, c1 = checkpoints[-2]['time_seconds'], checkpoints[-2]['counter']
+            t2, c2 = checkpoints[-1]['time_seconds'], checkpoints[-1]['counter']
+            rate = (c2 - c1) / (t2 - t1)
+            return int(c2 + rate * (elapsed_seconds - t2))
+        else:
+            rate = checkpoints[0]['counter'] / checkpoints[0]['time_seconds']
+            return int(elapsed_seconds * rate)
+    
+    # Between checkpoints: linear interpolation
+    for i in range(len(checkpoints) - 1):
+        t1, c1 = checkpoints[i]['time_seconds'], checkpoints[i]['counter']
+        t2, c2 = checkpoints[i + 1]['time_seconds'], checkpoints[i + 1]['counter']
+        
+        if t1 <= elapsed_seconds <= t2:
+            # Linear interpolation
+            factor = (elapsed_seconds - t1) / (t2 - t1)
+            counter = c1 + (c2 - c1) * factor
+            return int(counter)
+    
+    # Fallback
+    return calculate_counter_static(elapsed_seconds)
+
+def calculate_counter_auto(elapsed_seconds):
+    """
+    Auto physics-based counter: simulates tape reel mechanics.
+    Counter rate varies with reel radius (faster at start, slower at end).
+    """
+    # Calculate how much tape has been consumed
+    tape_consumed = min(elapsed_seconds * TAPE_SPEED, TAPE_LENGTH)
+    
+    # Calculate take-up reel radius based on tape wound onto it
+    tape_area_on_takeup = tape_consumed * TAPE_THICKNESS
+    takeup_radius = math.sqrt(HUB_RADIUS**2 + (tape_area_on_takeup / math.pi))
+    
+    # Normalize to match COUNTER_RATE at middle of tape
+    mid_tape_length = TAPE_LENGTH / 2
+    mid_tape_area = mid_tape_length * TAPE_THICKNESS
+    mid_radius = math.sqrt(HUB_RADIUS**2 + (mid_tape_area / math.pi))
+    
+    # Counter scales inversely with radius
+    counter_scale = mid_radius / takeup_radius
+    counter_value = elapsed_seconds * COUNTER_RATE * counter_scale
     
     return int(counter_value)
+
+def calibrate_counter_wizard():
+    """
+    Interactive wizard to calibrate tape counter.
+    Guides user through measuring checkpoints and generates config file.
+    """
+    print("\n" + "="*70)
+    print("    TAPE COUNTER CALIBRATION WIZARD")
+    print("="*70)
+    print("\nThis wizard will help you calibrate your tape deck counter.")
+    print("\nPREPARATION:")
+    print("  1. Insert a blank cassette tape (C60 or C90)")
+    print("  2. Reset your tape deck counter to 000")
+    print("  3. Have a stopwatch ready (or use your phone timer)")
+    print("  4. Press RECORD on your deck to start the tape")
+    print("\nYou will measure the counter value at specific time intervals.")
+    print("The more checkpoints you measure, the more accurate the calibration.")
+    print("\nRecommended checkpoints: 1min, 5min, 20min, 30min")
+    print("Optional: End of tape side (for full calibration)")
+    
+    input("\nPress Enter when you're ready to start...")
+    
+    # Collect metadata
+    print("\n" + "-"*70)
+    print("DECK INFORMATION (optional, press Enter to skip):")
+    tape_type = input("  Tape type (e.g., C60, C90): ").strip() or "Unknown"
+    deck_model = input("  Deck model (e.g., Sony TC-D5M): ").strip() or "Unknown"
+    
+    # Define standard checkpoints
+    suggested_times = [
+        (60, "1 minute"),
+        (300, "5 minutes"),
+        (1200, "20 minutes"),
+        (1800, "30 minutes")
+    ]
+    
+    checkpoints = []
+    
+    print("\n" + "-"*70)
+    print("CHECKPOINT MEASUREMENT:")
+    print("For each checkpoint, let the tape run and note the counter value.")
+    print("You can skip checkpoints by pressing Enter without a value.\n")
+    
+    for time_sec, label in suggested_times:
+        minutes = time_sec // 60
+        print(f"\nCheckpoint: {label} ({minutes} min / {time_sec} sec)")
+        print(f"  → Let tape run to {minutes} minute(s) on your stopwatch")
+        
+        while True:
+            counter_input = input(f"  → Enter counter value at {label}: ").strip()
+            
+            if not counter_input:
+                print(f"  Skipped {label}")
+                break
+            
+            try:
+                counter_value = int(counter_input)
+                if counter_value < 0:
+                    print("  Error: Counter value must be positive. Try again.")
+                    continue
+                
+                checkpoints.append({
+                    "time_seconds": time_sec,
+                    "counter": counter_value,
+                    "note": label
+                })
+                print(f"  ✓ Recorded: {time_sec}s → {counter_value}")
+                break
+            except ValueError:
+                print("  Error: Please enter a valid number. Try again.")
+    
+    # Optional: End of tape
+    print("\n" + "-"*70)
+    print("OPTIONAL: End of tape measurement")
+    print("If you want to measure until the end of the tape side:")
+    add_end = input("Measure end of tape? (y/n): ").strip().lower()
+    
+    if add_end == 'y':
+        print("\nLet the tape run until it auto-stops at the end.")
+        
+        while True:
+            time_input = input("Enter total time in seconds (or MM:SS format): ").strip()
+            
+            if not time_input:
+                print("Skipped end measurement")
+                break
+            
+            try:
+                # Parse MM:SS or seconds
+                if ':' in time_input:
+                    parts = time_input.split(':')
+                    time_sec = int(parts[0]) * 60 + int(parts[1])
+                else:
+                    time_sec = int(time_input)
+                
+                counter_input = input("Enter final counter value: ").strip()
+                if not counter_input:
+                    break
+                    
+                counter_value = int(counter_input)
+                
+                checkpoints.append({
+                    "time_seconds": time_sec,
+                    "counter": counter_value,
+                    "note": "End of tape"
+                })
+                print(f"  ✓ Recorded: {time_sec}s → {counter_value}")
+                break
+            except ValueError:
+                print("  Error: Invalid format. Try again.")
+    
+    if not checkpoints:
+        print("\nNo checkpoints recorded. Calibration cancelled.")
+        return
+    
+    # Sort checkpoints by time
+    checkpoints = sorted(checkpoints, key=lambda x: x['time_seconds'])
+    
+    # Calculate statistics
+    print("\n" + "="*70)
+    print("CALIBRATION SUMMARY:")
+    print(f"  Tape Type: {tape_type}")
+    print(f"  Deck Model: {deck_model}")
+    print(f"  Checkpoints Measured: {len(checkpoints)}")
+    print("\n  Checkpoint Details:")
+    
+    for cp in checkpoints:
+        minutes = cp['time_seconds'] // 60
+        rate = cp['counter'] / cp['time_seconds']
+        print(f"    {cp['note']:20s} → {cp['counter']:4d} (rate: {rate:.3f} counts/sec)")
+    
+    # Calculate average rate
+    if len(checkpoints) >= 2:
+        first_cp = checkpoints[0]
+        last_cp = checkpoints[-1]
+        time_diff = last_cp['time_seconds'] - first_cp['time_seconds']
+        counter_diff = last_cp['counter'] - first_cp['counter']
+        avg_rate = counter_diff / time_diff if time_diff > 0 else 0
+        print(f"\n  Average Rate: {avg_rate:.3f} counts/second")
+    
+    # Create config structure
+    config = {
+        "tape_type": tape_type,
+        "deck_model": deck_model,
+        "calibration_date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "checkpoints": checkpoints,
+        "interpolation": "linear"
+    }
+    
+    # Save to file
+    config_path = os.path.join(TARGET_FOLDER, COUNTER_CONFIG_PATH)
+    os.makedirs(os.path.dirname(config_path) if os.path.dirname(config_path) else '.', exist_ok=True)
+    
+    try:
+        with open(config_path, 'w') as f:
+            json.dump(config, f, indent=2)
+        
+        print("\n" + "="*70)
+        print(f"✓ Calibration saved to: {config_path}")
+        print("\nTo use this calibration:")
+        print(f"  python3 decprec.py --counter-mode manual --folder {TARGET_FOLDER}")
+        print("\nYou can edit the JSON file manually if needed.")
+        print("="*70 + "\n")
+    except Exception as e:
+        print(f"\nError saving calibration file: {e}")
 
 def format_duration(seconds):
     if seconds is None or seconds == "Unknown":
@@ -1702,5 +1978,35 @@ def main_menu(folder):
 
 
 if __name__ == "__main__":
+    # Handle calibration mode
+    if args.calibrate_counter:
+        calibrate_counter_wizard()
+        sys.exit(0)
+    
+    # Load calibration data if in manual mode
+    if COUNTER_MODE == "manual":
+        config_path = os.path.join(TARGET_FOLDER, COUNTER_CONFIG_PATH)
+        CALIBRATION_DATA = load_calibration_config(config_path)
+        if CALIBRATION_DATA is None:
+            print("\nError: Manual mode requires calibration file.")
+            print("Run with --calibrate-counter to create one, or use --counter-mode static\n")
+            sys.exit(1)
+        
+        print(f"\n✓ Loaded calibration from: {config_path}")
+        print(f"  Deck: {CALIBRATION_DATA.get('deck_model', 'Unknown')}")
+        print(f"  Tape: {CALIBRATION_DATA.get('tape_type', 'Unknown')}")
+        print(f"  Checkpoints: {len(CALIBRATION_DATA.get('checkpoints', []))}")
+        print(f"  Date: {CALIBRATION_DATA.get('calibration_date', 'Unknown')}\n")
+    
+    # Display counter mode info
+    mode_names = {
+        "manual": "Manual Calibrated",
+        "auto": "Auto Physics Simulation",
+        "static": "Static Linear Rate"
+    }
+    print(f"Counter Mode: {mode_names.get(COUNTER_MODE, COUNTER_MODE)}")
+    if COUNTER_MODE == "static":
+        print(f"Counter Rate: {COUNTER_RATE} counts/second\n")
+    
     main_menu(TARGET_FOLDER)
 

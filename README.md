@@ -28,7 +28,10 @@ A nostalgic cassette tape recording utility with. Perfect for mixtapes nerd cura
   - Supports both **Peak** and **LUFS** normalization methods
   - LUFS normalization for broadcast-standard perceived loudness
   - Configurable target LUFS level (default: -14.0 LUFS)
-- 📟 **Physics-Based Tape Counter** - Large 4-digit counter with realistic reel simulation (non-linear rate changes)
+- 📟 **Multi-Mode Tape Counter** - Large 4-digit counter with three calculation modes:
+  - **Manual Calibrated**: Uses your actual tape deck measurements with checkpoint interpolation
+  - **Auto Physics**: Realistic reel simulation (non-linear rate changes)
+  - **Static Linear**: Constant rate throughout tape
 - 📊 **Real-Time VU Meters** - Wide 50-character segmented block displays with actual audio waveform analysis (L/R channels)
   - **Persistent display** with dB scale (-60 to 0 dB) always visible
   - Consistent 50-character width across all screens
@@ -196,7 +199,10 @@ python decprec.py --folder ./tracks --track-gap 5 --duration 60 --counter-rate 1
 - `--folder PATH` - Audio tracks directory (default: `./tracks`)
 - `--track-gap N` - Gap between tracks in seconds (default: `5`)
 - `--duration N` - Maximum tape duration in minutes (default: `30`)
-- `--counter-rate N` - Counter increments per second (default: `1.0`)
+- `--counter-mode MODE` - Counter calculation mode: `manual`, `auto`, or `static` (default: `static`)
+- `--counter-rate N` - Counter increments per second for static mode (default: `1.0`)
+- `--counter-config PATH` - Path to counter calibration file for manual mode (default: `counter_calibration.json`)
+- `--calibrate-counter` - Run interactive counter calibration wizard
 - `--leader-gap N` - Leader gap before first track in seconds (default: `10`)
 - `--normalization METHOD` - Normalization method: `peak` or `lufs` (default: `lufs`)
 - `--target-lufs N` - Target LUFS level for LUFS normalization (default: `-14.0`)
@@ -223,7 +229,113 @@ deckpreprec/
 │   ├── deck_tracklist_20241211_143022.txt  # Timestamped tracklists
 │   └── deck_tracklist_20241211_151545.txt
 ├── venv/                      # Virtual environment
+├── counter_calibration.json   # Your tape deck calibration (manual mode)
 └── README.md
+```
+
+## 📟 Tape Counter Calibration
+
+The script supports three counter modes to match your specific tape deck:
+
+### Counter Modes
+
+#### 1. **Static Mode (Default)** - Constant Rate
+```bash
+python decprec.py --counter-mode static --counter-rate 1.408
+```
+- Counter increments at a constant rate throughout the tape
+- Simplest and most common counter type
+- Best for decks with linear/constant counters
+- Use `--counter-rate` to set your deck's rate
+
+**Measuring Your Counter Rate:**
+1. Reset deck counter to 000
+2. Press RECORD and start stopwatch
+3. Let it run for 15-30 minutes (longer = more accurate)
+4. Note: counter value and time in seconds
+5. Calculate: `counter_rate = counter / time_seconds`
+
+Example: 2534 counter at 30 minutes (1800s) → rate = 1.408
+
+---
+
+#### 2. **Manual Calibrated Mode** - Uses Your Deck's Actual Behavior
+```bash
+# Step 1: Calibrate your deck (one-time setup)
+python decprec.py --calibrate-counter
+
+# Step 2: Use calibrated counter
+python decprec.py --counter-mode manual
+```
+
+This mode uses checkpoints you measure from your actual tape deck and interpolates between them for accuracy throughout the entire tape.
+
+**Calibration Process:**
+1. Insert blank tape (C60 or C90)
+2. Reset deck counter to 000
+3. Press RECORD and use stopwatch
+4. Note counter at these checkpoints:
+   - 1 minute (60s)
+   - 5 minutes (300s)
+   - 20 minutes (1200s)
+   - 30 minutes (1800s)
+   - Optional: End of tape side
+5. Enter values in the wizard
+6. Configuration saved to `counter_calibration.json`
+
+**Example Calibration Data:**
+```json
+{
+  "tape_type": "C60",
+  "deck_model": "Sony TC-D5M",
+  "checkpoints": [
+    {"time_seconds": 60, "counter": 85},
+    {"time_seconds": 300, "counter": 422},
+    {"time_seconds": 1200, "counter": 1690},
+    {"time_seconds": 1800, "counter": 2534}
+  ]
+}
+```
+
+**Benefits:**
+- Most accurate for your specific deck
+- Handles non-linear counter behavior
+- One-time calibration, reusable forever
+- Can calibrate multiple decks with different config files
+
+---
+
+#### 3. **Auto Physics Mode** - Simulates Tape Reel Mechanics
+```bash
+python decprec.py --counter-mode auto --counter-rate 1.408
+```
+- Simulates how counter changes with reel radius
+- Counter runs faster at start (small radius), slower at end (large radius)
+- Based on cassette tape physics:
+  - Tape speed: 47.625 mm/s (1⅞ ips)
+  - Hub radius: 10mm
+  - Tape thickness: 0.016mm
+- Useful for decks with mechanically-driven counters
+
+**When to use each mode:**
+- **Static**: Your deck counter runs at constant speed (most common)
+- **Manual**: You want maximum accuracy for your specific deck
+- **Auto**: Your deck's counter is mechanically connected to the reel rotation
+
+---
+
+### Advanced: Multiple Deck Calibrations
+
+Create separate calibration files for different decks:
+```bash
+# Calibrate deck A
+python decprec.py --calibrate-counter --counter-config deck_a.json
+
+# Calibrate deck B
+python decprec.py --calibrate-counter --counter-config deck_b.json
+
+# Use specific deck
+python decprec.py --counter-mode manual --counter-config deck_a.json
 ```
 
 ## 🎹 Keyboard Controls

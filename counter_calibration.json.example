@@ -1,0 +1,28 @@
+{
+  "tape_type": "C60",
+  "deck_model": "Sony TC-D5M",
+  "calibration_date": "2025-12-16 14:30:00",
+  "checkpoints": [
+    {
+      "time_seconds": 60,
+      "counter": 85,
+      "note": "1 minute"
+    },
+    {
+      "time_seconds": 300,
+      "counter": 422,
+      "note": "5 minutes"
+    },
+    {
+      "time_seconds": 1200,
+      "counter": 1690,
+      "note": "20 minutes"
+    },
+    {
+      "time_seconds": 1800,
+      "counter": 2534,
+      "note": "30 minutes"
+    }
+  ],
+  "interpolation": "linear"
+}
