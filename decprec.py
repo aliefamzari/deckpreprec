@@ -1256,7 +1256,6 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
     stdscr.clear()
     total_tracks = len(normalized_tracks)
     total_time = leader_gap + sum(int(round(t['audio'].duration_seconds)) for t in normalized_tracks) + (track_gap * (total_tracks - 1))
-    overall_start_time = time.time()
 
     # Precompute start/end/duration for display
     track_times = []
@@ -1269,6 +1268,9 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
         current_time = end_time_track + track_gap
 
     avg_dbfs = sum(t['dBFS'] for t in normalized_tracks) / len(normalized_tracks) if normalized_tracks else 0
+
+    # Start timing - tape deck "record" button pressed after prep countdown
+    overall_start_time = time.time()
 
     # Leader gap countdown before first track
     if leader_gap > 0:
