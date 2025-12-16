@@ -646,6 +646,8 @@ def show_normalization_summary(stdscr, normalized_tracks):
             safe_addstr(stdscr, meter_y + 1, 0, position_text, curses.color_pair(COLOR_YELLOW))
         else:
             level_l, level_r = 0.0, 0.0
+            stdscr.move(meter_y, 0)
+            stdscr.clrtoeol()
             safe_addstr(stdscr, meter_y, 0, "Ready to preview tracks", curses.color_pair(COLOR_WHITE))
         
         safe_addstr(stdscr, meter_y + 2, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
@@ -796,97 +798,97 @@ def show_normalization_summary(stdscr, normalized_tracks):
 
 def prep_countdown(stdscr, seconds=10):
     """Show a cancellable countdown. Return True to proceed, False to cancel."""
-    # Big ASCII numbers for countdown
+    # Digital 7-segment style numbers for countdown
     big_numbers = {
         '0': [
-            "  ████████  ",
-            " ██      ██ ",
-            "██        ██",
-            "██        ██",
-            "██        ██",
-            " ██      ██ ",
-            "  ████████  "
+            "███████",
+            "█     █",
+            "█     █",
+            "█     █",
+            "█     █",
+            "█     █",
+            "███████"
         ],
         '1': [
-            "    ██    ",
-            "  ████    ",
-            "    ██    ",
-            "    ██    ",
-            "    ██    ",
-            "    ██    ",
-            "  ██████  "
+            "      █",
+            "      █",
+            "      █",
+            "      █",
+            "      █",
+            "      █",
+            "      █"
         ],
         '2': [
-            "  ████████  ",
-            " ██      ██ ",
-            "         ██ ",
-            "   ███████  ",
-            " ██         ",
-            " ██         ",
-            " ███████████"
+            "███████",
+            "      █",
+            "      █",
+            "███████",
+            "█      ",
+            "█      ",
+            "███████"
         ],
         '3': [
-            "  ████████  ",
-            " ██      ██ ",
-            "         ██ ",
-            "   ███████  ",
-            "         ██ ",
-            " ██      ██ ",
-            "  ████████  "
+            "███████",
+            "      █",
+            "      █",
+            "███████",
+            "      █",
+            "      █",
+            "███████"
         ],
         '4': [
-            " ██      ██ ",
-            " ██      ██ ",
-            " ██      ██ ",
-            " ███████████",
-            "         ██ ",
-            "         ██ ",
-            "         ██ "
+            "█     █",
+            "█     █",
+            "█     █",
+            "███████",
+            "      █",
+            "      █",
+            "      █"
         ],
         '5': [
-            " ███████████",
-            " ██         ",
-            " ██         ",
-            " ██████████ ",
-            "         ██ ",
-            " ██      ██ ",
-            "  ████████  "
+            "███████",
+            "█      ",
+            "█      ",
+            "███████",
+            "      █",
+            "      █",
+            "███████"
         ],
         '6': [
-            "  ████████  ",
-            " ██      ██ ",
-            " ██         ",
-            " ██████████ ",
-            " ██      ██ ",
-            " ██      ██ ",
-            "  ████████  "
+            "███████",
+            "█      ",
+            "█      ",
+            "███████",
+            "█     █",
+            "█     █",
+            "███████"
         ],
         '7': [
-            " ███████████",
-            "         ██ ",
-            "        ██  ",
-            "       ██   ",
-            "      ██    ",
-            "     ██     ",
-            "    ██      "
+            "███████",
+            "      █",
+            "      █",
+            "      █",
+            "      █",
+            "      █",
+            "      █"
         ],
         '8': [
-            "  ████████  ",
-            " ██      ██ ",
-            " ██      ██ ",
-            "  ████████  ",
-            " ██      ██ ",
-            " ██      ██ ",
-            "  ████████  "
+            "███████",
+            "█     █",
+            "█     █",
+            "███████",
+            "█     █",
+            "█     █",
+            "███████"
         ],
         '9': [
-            "  ████████  ",
-            " ██      ██ ",
-            " ██      ██ ",
-            "  ██████████",
-            "         ██ ",
-            " ██      ██ ",
-            "  ████████  "
+            "███████",
+            "█     █",
+            "█     █",
+            "███████",
+            "      █",
+            "      █",
+            "███████"
         ]
     }
     
@@ -983,26 +985,64 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             if first_leader_draw:
                 stdscr.erase()
                 first_leader_draw = False
-            draw_cassette_art(stdscr, 0, 10)
             
-            title_y = 14
+            # Draw large tape counter
+            max_y, max_x = stdscr.getmaxyx()
+            counter_str = f"{current_counter:04d}"
+            
+            # Digital 7-segment style numbers for tape counter
+            big_numbers = {
+                '0': ["███████", "█     █", "█     █", "█     █", "█     █", "█     █", "███████"],
+                '1': ["      █", "      █", "      █", "      █", "      █", "      █", "      █"],
+                '2': ["███████", "      █", "      █", "███████", "█      ", "█      ", "███████"],
+                '3': ["███████", "      █", "      █", "███████", "      █", "      █", "███████"],
+                '4': ["█     █", "█     █", "█     █", "███████", "      █", "      █", "      █"],
+                '5': ["███████", "█      ", "█      ", "███████", "      █", "      █", "███████"],
+                '6': ["███████", "█      ", "█      ", "███████", "█     █", "█     █", "███████"],
+                '7': ["███████", "      █", "      █", "      █", "      █", "      █", "      █"],
+                '8': ["███████", "█     █", "█     █", "███████", "█     █", "█     █", "███████"],
+                '9': ["███████", "█     █", "█     █", "███████", "      █", "      █", "███████"]
+            }
+            
+            # Draw title first
+            title_y = 0
             safe_addstr(stdscr, title_y, 0, "╔" + "═" * 78 + "╗", curses.color_pair(COLOR_CYAN))
             safe_addstr(stdscr, title_y + 1, 28, "LEADER GAP - STAND BY", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
             safe_addstr(stdscr, title_y + 2, 0, "╚" + "═" * 78 + "╝", curses.color_pair(COLOR_CYAN))
             
-            safe_addstr(stdscr, title_y + 4, 2, "┌─ TAPE COUNTER ──┐", curses.color_pair(COLOR_YELLOW))
-            counter_line = f"│     {current_counter:04d}        │"
-            safe_addstr(stdscr, title_y + 5, 2, counter_line, curses.color_pair(COLOR_YELLOW))
-            safe_addstr(stdscr, title_y + 5, 8, f"{current_counter:04d}", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-            safe_addstr(stdscr, title_y + 6, 2, "└─────────────────┘", curses.color_pair(COLOR_YELLOW))
+            # Draw tape counter below title
+            counter_y = title_y + 4
             
+            # Start from left with consistent margin
+            digit_width = 7
+            spacing = 2
+            start_x = 2
+            
+            # Draw each digit
+            for line_idx in range(7):
+                current_x = start_x
+                for digit in counter_str:
+                    line = big_numbers[digit][line_idx]
+                    safe_addstr(stdscr, counter_y + 2 + line_idx, current_x, line, curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                    current_x += digit_width + spacing
+            
+            # Counter label centered below digits
+            label_y = counter_y + 10
+            total_counter_width = (digit_width * 4) + (spacing * 3)
+            label_text = "[TAPE COUNTER]"
+            # Center the label within the counter width
+            padding = (total_counter_width - len(label_text)) // 2
+            safe_addstr(stdscr, label_y, start_x + padding, label_text, curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+            
+            # Messages below counter label
+            msg_y = counter_y + 12
             leader_remaining = int(leader_gap - leader_elapsed)
-            safe_addstr(stdscr, title_y + 8, 10, f"Waiting for leader tape to pass... {leader_remaining}s", 
+            safe_addstr(stdscr, msg_y, 10, f"Waiting for leader tape to pass... {leader_remaining}s", 
                          curses.color_pair(COLOR_YELLOW) | curses.A_BLINK)
-            safe_addstr(stdscr, title_y + 10, 10, f"First track will start at counter {int(leader_gap * COUNTER_RATE):04d}", 
+            safe_addstr(stdscr, msg_y + 2, 10, f"First track will start at counter {int(leader_gap * COUNTER_RATE):04d}", 
                          curses.color_pair(COLOR_CYAN))
             
-            footer_y = title_y + 15
+            footer_y = msg_y + 5
             safe_addstr(stdscr, footer_y, 0, "Press ", curses.color_pair(COLOR_WHITE))
             safe_addstr(stdscr, footer_y, 6, "Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
             safe_addstr(stdscr, footer_y, 7, " to quit to main menu.", curses.color_pair(COLOR_WHITE))
@@ -1042,26 +1082,59 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
                     stdscr.erase()
                     first_draw = False
             
-                # Draw cassette art at top
-                draw_cassette_art(stdscr, 0, 10)
+                # Draw large tape counter at top
+                counter_str = f"{current_counter:04d}"
                 
-                # Title below cassette
-                title_y = 14
+                # Use big_numbers dictionary
+                big_numbers = {
+                    '0': ["███████", "█     █", "█     █", "█     █", "█     █", "█     █", "███████"],
+                    '1': ["      █", "      █", "      █", "      █", "      █", "      █", "      █"],
+                    '2': ["███████", "      █", "      █", "███████", "█      ", "█      ", "███████"],
+                    '3': ["███████", "      █", "      █", "███████", "      █", "      █", "███████"],
+                    '4': ["█     █", "█     █", "█     █", "███████", "      █", "      █", "      █"],
+                    '5': ["███████", "█      ", "█      ", "███████", "      █", "      █", "███████"],
+                    '6': ["███████", "█      ", "█      ", "███████", "█     █", "█     █", "███████"],
+                    '7': ["███████", "      █", "      █", "      █", "      █", "      █", "      █"],
+                    '8': ["███████", "█     █", "█     █", "███████", "█     █", "█     █", "███████"],
+                    '9': ["███████", "█     █", "█     █", "███████", "      █", "      █", "███████"]
+                }
+                
+                # Draw title first
+                title_y = 0
                 safe_addstr(stdscr, title_y, 0, "╔" + "═" * 78 + "╗", curses.color_pair(COLOR_CYAN))
                 safe_addstr(stdscr, title_y + 1, 30, "DECK RECORDING MODE", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
                 safe_addstr(stdscr, title_y + 2, 0, "╚" + "═" * 78 + "╝", curses.color_pair(COLOR_CYAN))
-                # Counter and stats - use full string for alignment
-                safe_addstr(stdscr, title_y + 4, 2, "┌─ TAPE COUNTER ──┐", curses.color_pair(COLOR_YELLOW))
-                counter_line = f"│     {current_counter:04d}        │"
-                safe_addstr(stdscr, title_y + 5, 2, counter_line, curses.color_pair(COLOR_YELLOW))
-                safe_addstr(stdscr, title_y + 5, 8, f"{current_counter:04d}", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-                safe_addstr(stdscr, title_y + 6, 2, "└─────────────────┘", curses.color_pair(COLOR_YELLOW))
-                safe_addstr(stdscr, title_y + 4, 25, f"AVG dBFS: {avg_dbfs:+.2f}", curses.color_pair(COLOR_CYAN))
-                safe_addstr(stdscr, title_y + 5, 25, f"TRACK GAP: {track_gap}s", curses.color_pair(COLOR_CYAN))
+                
+                # Draw tape counter below title
+                counter_y = title_y + 4
+                
+                # Start from left with consistent margin
+                digit_width = 7
+                spacing = 2
+                start_x = 2
+                
+                # Draw each digit
+                for line_idx in range(7):
+                    current_x = start_x
+                    for digit in counter_str:
+                        line = big_numbers[digit][line_idx]
+                        safe_addstr(stdscr, counter_y + 2 + line_idx, current_x, line, curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                        current_x += digit_width + spacing
+                
+                # Counter label centered below digits
+                label_y = counter_y + 10
+                total_counter_width = (digit_width * 4) + (spacing * 3)
+                label_text = "[TAPE COUNTER]"
+                # Center the label within the counter width
+                padding = (total_counter_width - len(label_text)) // 2
+                safe_addstr(stdscr, label_y, start_x + padding, label_text, curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+                
+                safe_addstr(stdscr, title_y + 4, 2, f"AVG dBFS: {avg_dbfs:+.2f}", curses.color_pair(COLOR_CYAN))
+                safe_addstr(stdscr, title_y + 4, 25, f"TRACK GAP: {track_gap}s", curses.color_pair(COLOR_CYAN))
             
             # VU Meters - real audio levels from waveform analysis (update every frame for smooth animation)
-            title_y = 14
-            meter_y = title_y + 8
+            title_y = 4
+            meter_y = counter_y + 12
             # Apply latency compensation to delay meters and match audio output
             elapsed_ms = int((track_elapsed - AUDIO_LATENCY) * 1000)
             level_l, level_r = get_audio_level_at_time(track['audio_levels'], elapsed_ms)
@@ -1248,6 +1321,8 @@ def main_menu(folder):
                     level_l, level_r = 0.0, 0.0
             else:
                 level_l, level_r = 0.0, 0.0
+                stdscr.move(meter_y, 0)
+                stdscr.clrtoeol()
                 safe_addstr(stdscr, meter_y, 0, "No preview playing", curses.color_pair(COLOR_WHITE))
             
             safe_addstr(stdscr, meter_y + 1, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
