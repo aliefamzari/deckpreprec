@@ -90,6 +90,12 @@ TARGET_LUFS = args.target_lufs
 AUDIO_LATENCY = args.audio_latency
 FFMPEG_PATH = args.ffmpeg_path
 
+# Tape reel physics constants for realistic counter behavior
+TAPE_THICKNESS = 0.016  # mm - standard cassette tape thickness
+HUB_RADIUS = 10.0  # mm - radius of empty hub/spool
+TAPE_SPEED = 47.625  # mm/s - standard cassette speed (1 7/8 ips)
+TAPE_LENGTH = TOTAL_DURATION_MINUTES * 60 * TAPE_SPEED  # Total tape length in mm
+
 # Add /usr/sbin to PATH for ffmpeg/ffprobe/ffplay if present
 os.environ["PATH"] += os.pathsep + "/usr/sbin"
 
@@ -173,6 +179,50 @@ def draw_cassette_art(stdscr, y, x):
             stdscr.addstr(y + i, x, line, curses.color_pair(COLOR_MAGENTA))
         except:
             pass
+
+def calculate_tape_counter(elapsed_seconds):
+    """
+    Calculate tape counter based on realistic reel physics.
+    
+    Models actual cassette tape behavior where counter is driven by take-up reel rotation.
+    As tape moves from supply to take-up reel:
+    - Supply reel diameter decreases
+    - Take-up reel diameter increases
+    - Counter rate changes non-linearly (faster at start, slower at end)
+    
+    Args:
+        elapsed_seconds: Time elapsed in seconds
+    
+    Returns:
+        Integer counter value
+    """
+    # Calculate how much tape has been consumed
+    tape_consumed = min(elapsed_seconds * TAPE_SPEED, TAPE_LENGTH)
+    
+    # Calculate take-up reel radius based on tape wound onto it
+    # Area of tape on take-up reel = tape consumed * thickness
+    tape_area_on_takeup = tape_consumed * TAPE_THICKNESS
+    # Radius = sqrt(hub_area + tape_area) = sqrt(pi*r_hub^2 + tape_area) / sqrt(pi)
+    takeup_radius = math.sqrt(HUB_RADIUS**2 + (tape_area_on_takeup / math.pi))
+    
+    # Counter is proportional to reel rotations
+    # Use integral of rotation = integral of (linear_speed / radius) over time
+    # For simplicity, use average radius approach with counter rate adjustment
+    # Counter increases faster when radius is smaller (beginning of tape)
+    
+    # Calculate counter using inverse relationship with radius
+    # Normalize to match user's counter_rate at middle of tape
+    mid_tape_length = TAPE_LENGTH / 2
+    mid_tape_area = mid_tape_length * TAPE_THICKNESS
+    mid_radius = math.sqrt(HUB_RADIUS**2 + (mid_tape_area / math.pi))
+    
+    # Counter value scales inversely with radius
+    # At beginning: small radius = fast counter
+    # At end: large radius = slow counter
+    counter_scale = mid_radius / takeup_radius
+    counter_value = elapsed_seconds * COUNTER_RATE * counter_scale
+    
+    return int(counter_value)
 
 def format_duration(seconds):
     if seconds is None or seconds == "Unknown":
@@ -465,8 +515,11 @@ def normalize_tracks(tracks, folder, stdscr=None):
     
     for i, track in enumerate(tracks):
         src_path = os.path.join(folder, track['name'])
-        # normalized filename includes method to distinguish between normalizations
-        norm_name = f"{track['name']}.{method}.normalized.wav"
+        # normalized filename includes method and target value to distinguish between normalizations
+        if method == "lufs":
+            norm_name = f"{track['name']}.lufs{TARGET_LUFS:+.1f}.normalized.wav"
+        else:
+            norm_name = f"{track['name']}.peak.normalized.wav"
         norm_path = os.path.join(normalized_dir, norm_name)
         
         if os.path.exists(norm_path):
@@ -547,9 +600,10 @@ def write_deck_tracklist(normalized_tracks, track_gap, folder, counter_rate, lea
         )
         current_time = end_time + (track_gap if idx < len(normalized_tracks)-1 else 0)
     
-    # Generate unique filename with timestamp
+    # Generate unique filename with timestamp and normalization info
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_filename = f"deck_tracklist_{timestamp}.txt"
+    norm_info = f"lufs{TARGET_LUFS:+.1f}" if NORMALIZATION_METHOD == "lufs" else "peak"
+    output_filename = f"deck_tracklist_{timestamp}_{norm_info}.txt"
     output_path = os.path.join(folder, output_filename)
     
     with open(output_path, "w") as f:
@@ -557,7 +611,7 @@ def write_deck_tracklist(normalized_tracks, track_gap, folder, counter_rate, lea
         f.write("="*40 + "\n")
         f.write(f"Session: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"Counter Rate: {counter_rate} counts/second\n")
-        f.write(f"Leader Gap: {leader_gap}s (Counter: 0000 - {int(leader_gap * counter_rate):04d})\n\n")
+        f.write(f"Leader Gap: {leader_gap}s (Counter: 0000 - {calculate_tape_counter(leader_gap):04d})\n\n")
         for line in lines:
             f.write(line + "\n")
     
@@ -975,7 +1029,7 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
         while True:
             elapsed = time.time() - overall_start_time
             leader_elapsed = time.time() - leader_start_time
-            current_counter = int(elapsed * COUNTER_RATE)
+            current_counter = calculate_tape_counter(elapsed)
             
             if leader_elapsed >= leader_gap:
                 break
@@ -1047,7 +1101,7 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             leader_remaining = int(leader_gap - leader_elapsed)
             safe_addstr(stdscr, msg_y, 10, f"Waiting for leader tape to pass... {leader_remaining}s", 
                          curses.color_pair(COLOR_YELLOW) | curses.A_BLINK)
-            safe_addstr(stdscr, msg_y + 2, 10, f"First track will start at counter {int(leader_gap * COUNTER_RATE):04d}", 
+            safe_addstr(stdscr, msg_y + 2, 10, f"First track will start at counter {calculate_tape_counter(leader_gap):04d}", 
                          curses.color_pair(COLOR_CYAN))
             
             footer_y = msg_y + 5
@@ -1077,7 +1131,7 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             now = time.time()
             elapsed = now - overall_start_time
             track_elapsed = now - track_start_time
-            current_counter = int(elapsed * COUNTER_RATE)
+            current_counter = calculate_tape_counter(elapsed)
             current_progress = int(60 * (track_elapsed / max(1, track_duration)))
             
             # Check if we need to redraw static elements
@@ -1175,8 +1229,8 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
                 for i, t in enumerate(normalized_tracks):
                     wav_name = os.path.basename(t['path'])
                     start_time_track, end_time_track, duration = track_times[i]
-                    counter_start = int(start_time_track * COUNTER_RATE)
-                    counter_end = int(end_time_track * COUNTER_RATE)
+                    counter_start = calculate_tape_counter(start_time_track)
+                    counter_end = calculate_tape_counter(end_time_track)
                     is_current = i == idx
                     marker = "▶▶" if is_current else "  "
                     color = COLOR_GREEN if is_current else COLOR_CYAN
@@ -1474,11 +1528,11 @@ def main_menu(folder):
                 controls_y = footer_y + 2
                 safe_addstr(stdscr, controls_y, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
                 safe_addstr(stdscr, controls_y + 1, 0, "CONTROLS:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 2, 0, "  ↑/↓:Nav  Space:Select  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 2, 25, "P", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 2, 26, ":Play  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 2, 33, "X", curses.color_pair(COLOR_RED) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 2, 34, ":Stop", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 2, 0, "  ↑/↓:Nav  Space:Select  C:Clear  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 2, 35, "P", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 2, 36, ":Play  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 2, 43, "X", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 2, 44, ":Stop", curses.color_pair(COLOR_WHITE))
                 
                 safe_addstr(stdscr, controls_y + 3, 0, "  ", curses.color_pair(COLOR_WHITE))
                 safe_addstr(stdscr, controls_y + 3, 2, "←", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
@@ -1529,6 +1583,12 @@ def main_menu(folder):
                         else:
                             # Track exceeded capacity - show warning for 2 seconds
                             capacity_warning_until = time.time() + 2.0
+                elif key in (ord('c'), ord('C')):
+                    # Clear all selected tracks
+                    if selected_tracks:
+                        selected_tracks.clear()
+                        total_selected_duration = 0
+                        needs_full_redraw = True
                 elif key in (ord('p'), ord('P')):
                     if previewing_index == current_index and ffplay_proc is not None and ffplay_proc.poll() is None:
                         # Pause current playback (save position)

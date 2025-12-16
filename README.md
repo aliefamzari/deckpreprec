@@ -28,7 +28,7 @@ A nostalgic cassette tape recording utility with. Perfect for mixtapes nerd cura
   - Supports both **Peak** and **LUFS** normalization methods
   - LUFS normalization for broadcast-standard perceived loudness
   - Configurable target LUFS level (default: -14.0 LUFS)
-- 📟 **Digital 7-Segment Counter** - Large 4-digit counter display with configurable rate matching your deck
+- 📟 **Physics-Based Tape Counter** - Large 4-digit counter with realistic reel simulation (non-linear rate changes)
 - 📊 **Real-Time VU Meters** - Wide 50-character segmented block displays with actual audio waveform analysis (L/R channels)
   - **Persistent display** with dB scale (-60 to 0 dB) always visible
   - Consistent 50-character width across all screens
@@ -233,6 +233,7 @@ deckpreprec/
 |-----|--------|
 | `↑` / `↓` / `K` / `J` | Navigate tracks (stops at first/last, keeps current track playing) |
 | `Space` | Select/deselect track for recording |
+| `C` | Clear all selected tracks |
 | `P` | Play/Pause track (toggle playback) |
 | `X` | Stop playback and reset position |
 | `←` / `→` | Rewind/Forward 10 seconds (while playing) |
@@ -336,10 +337,13 @@ deckpreprec/
 
 - **Neon Color Scheme:** Cyan, magenta, yellow, green, red, white
 - **Clean ASCII Cassette Art:** Modern, detailed tape graphics with reels and label area
-- **Digital 7-Segment Counter:** Large 4-digit display with authentic LED calculator/digital watch style
-  - 7-line tall digits for excellent visibility
+- **Physics-Based Tape Counter:** Large 4-digit display with realistic reel behavior
+  - 7-line tall digital 7-segment style digits for excellent visibility
+  - Models actual cassette tape reel physics (non-linear counter rate)
+  - Counter driven by take-up reel rotation simulation
+  - Faster counting at tape beginning (small reel), slower at end (large reel)
+  - Matches real-world tape deck behavior
   - "[TAPE COUNTER]" label for clarity
-  - Real-time updates during recording
 - **Wide Segmented VU Meters:** 50-character block displays (██) with full dB scale (-60 to 0 dB)
   - Consistent width across all screens (normalization, main menu, recording)
   - Always visible during playback and recording
@@ -360,17 +364,25 @@ deckpreprec/
 
 ### Tape Counter Rate
 
-Match your deck's counter behavior:
+The counter now uses **physics-based simulation** that models real cassette tape reel behavior. The counter rate changes non-linearly as tape moves from supply to take-up reel:
+- **Beginning of tape:** Smaller take-up reel = faster counter rate
+- **Middle of tape:** Medium reel size = rate matches your `--counter-rate` setting
+- **End of tape:** Larger take-up reel = slower counter rate
+
+Configure the base counter rate to match your deck's behavior at the middle of the tape:
+
 ```bash
-# If counter reaches 60 after 1 minute
+# If counter reaches ~60 at mid-tape after 1 minute
 python decprec.py --counter-rate 1.0
 
-# If counter reaches 120 after 1 minute
+# If counter reaches ~120 at mid-tape after 1 minute  
 python decprec.py --counter-rate 2.0
 
-# Custom rate (e.g., 1.1)
+# Custom rate (e.g., 1.1) - tune to match your deck
 python decprec.py --counter-rate 1.1
 ```
+
+**Note:** The physics simulation automatically accounts for reel diameter changes, so you only need to set the base rate. The counter will speed up and slow down naturally just like a real tape deck!
 
 ### Leader Gap Configuration
 
