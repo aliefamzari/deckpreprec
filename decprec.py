@@ -924,10 +924,15 @@ def prep_countdown(stdscr, seconds=10):
             # Draw second digit
             safe_addstr(stdscr, y_pos, start_x + len(line) + 3, big_numbers[num_str[1]][i], curses.color_pair(COLOR_YELLOW) | curses.A_BOLD | curses.A_BLINK)
         
+        # Important instruction
+        important_str = "PRESS RECORD ON YOUR DECK WHEN COUNTDOWN HITS 0"
+        important_x = max(0, (max_x - len(important_str)) // 2)
+        safe_addstr(stdscr, countdown_y + 11, important_x, important_str, curses.color_pair(COLOR_RED) | curses.A_BOLD | curses.A_BLINK)
+        
         # Instructions
         instr_str = "Press Q to cancel and return to menu."
         instr_x = max(0, (max_x - len(instr_str)) // 2)
-        safe_addstr(stdscr, countdown_y + 11, instr_x, instr_str, curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, countdown_y + 13, instr_x, instr_str, curses.color_pair(COLOR_WHITE))
         stdscr.refresh()
         # allow immediate cancel
         for _ in range(10):
