@@ -653,13 +653,13 @@ def show_normalization_summary(stdscr, normalized_tracks):
             stdscr.clrtoeol()
             safe_addstr(stdscr, meter_y, 0, "Ready to preview tracks", curses.color_pair(COLOR_WHITE))
         
-        safe_addstr(stdscr, meter_y + 2, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
-        draw_vu_meter(stdscr, meter_y + 3, 2, level_l, max_width=40, label="L")
+        safe_addstr(stdscr, meter_y + 2, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
+        draw_vu_meter(stdscr, meter_y + 3, 2, level_l, max_width=50, label="L")
         # dB scale between meters
         db_scale = "    -60  -40  -30  -20  -12   -6   -3    0 dB"
         safe_addstr(stdscr, meter_y + 4, 2, db_scale, curses.color_pair(COLOR_YELLOW))
-        draw_vu_meter(stdscr, meter_y + 5, 2, level_r, max_width=40, label="R")
-        safe_addstr(stdscr, meter_y + 6, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+        draw_vu_meter(stdscr, meter_y + 5, 2, level_r, max_width=50, label="R")
+        safe_addstr(stdscr, meter_y + 6, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
         
         # Track list with method indicator
         tracklist_y = meter_y + 8
@@ -1328,13 +1328,13 @@ def main_menu(folder):
                 stdscr.clrtoeol()
                 safe_addstr(stdscr, meter_y, 0, "No preview playing", curses.color_pair(COLOR_WHITE))
             
-            safe_addstr(stdscr, meter_y + 1, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
-            draw_vu_meter(stdscr, meter_y + 2, 2, level_l, max_width=40, label="L")
+            safe_addstr(stdscr, meter_y + 1, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
+            draw_vu_meter(stdscr, meter_y + 2, 2, level_l, max_width=50, label="L")
             # dB scale between meters
             db_scale = "    -60  -40  -30  -20  -12   -6   -3    0 dB"
             safe_addstr(stdscr, meter_y + 3, 2, db_scale, curses.color_pair(COLOR_YELLOW))
-            draw_vu_meter(stdscr, meter_y + 4, 2, level_r, max_width=40, label="R")
-            safe_addstr(stdscr, meter_y + 5, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+            draw_vu_meter(stdscr, meter_y + 4, 2, level_r, max_width=50, label="R")
+            safe_addstr(stdscr, meter_y + 5, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
             
             tracklist_y = meter_y + 7
             safe_addstr(stdscr, tracklist_y, 0, f"TRACKS IN FOLDER ({folder}):", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
