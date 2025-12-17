@@ -4,7 +4,7 @@
 
 Save complete deck configurations in JSON files and load them instantly. Deck profiles can include tape type specifications, counter calibration, and all audio settings:
 
-**Complete profile example:**
+**Manual calibrated deck profile:**
 ```json
 {
   "deck_model": "AIWA AD-F780",
@@ -12,12 +12,27 @@ Save complete deck configurations in JSON files and load them instantly. Deck pr
   "tape_duration": 45,
   "counter_mode": "manual",
   "counter_config": "counter_calibration_aiwa.json",
-  "counter_rate": 1.35,
   "leader_gap": 10,
   "track_gap": 5,
   "normalization": "lufs",
   "target_lufs": -14.0,
   "audio_latency": 0.2,
+  "ffmpeg_path": "/usr/bin/ffmpeg"
+}
+```
+
+**Static counter deck profile:**
+```json
+{
+  "deck_model": "Pioneer CT-R305",
+  "tape_type": "Type I", 
+  "tape_duration": 30,
+  "counter_mode": "static",
+  "counter_rate": 1.35,
+  "leader_gap": 8,
+  "track_gap": 4,
+  "normalization": "peak",
+  "audio_latency": 0.1,
   "ffmpeg_path": "/usr/bin/ffmpeg"
 }
 ```
@@ -39,6 +54,11 @@ deck_profiles/
 ├── pioneer_ctr305.json       # Pioneer CT-R305 (basic)
 └── technics_rsx205.json      # Technics RS-X205 (metal capable)
 ```
+
+**Counter Mode Parameter Rules:**
+- **Manual mode**: Uses `counter_config` (ignores `counter_rate`)
+- **Static mode**: Uses `counter_rate` (ignores `counter_config`)  
+- **Auto mode**: Uses neither (physics-based calculation)
 
 Any command-line argument will override the profile value, allowing flexible customization.
 # 📼 Tape Deck/Prep/Record
