@@ -86,7 +86,7 @@ A nostalgic cassette tape recording utility with. Perfect for mixtapes nerd cura
 
 ## ✨ Features
 
-- 🎨 **Retro 80s UI** - Neon colors, clean ASCII cassette art, and authentic tape deck aesthetics
+- 🎨 **Professional UI** - Clean colors, ASCII cassette art, and authentic tape deck aesthetics
 - 🔊 **Audio Normalization** - Consistent volume levels across all tracks (cached for speed)
   - Supports both **Peak** and **LUFS** normalization methods
   - LUFS normalization for broadcast-standard perceived loudness
@@ -113,7 +113,7 @@ A nostalgic cassette tape recording utility with. Perfect for mixtapes nerd cura
 - 🔧 **Audio Latency Compensation** - Adjustable sync between VU meters and audio output for perfect timing
 - 📂 **Folder Path Display** - Shows current working folder in track list header
 - 🔴 **Capacity Warning** - Red blinking alert when track selection exceeds tape length
-- 📼 **Comprehensive Tape Type Support** - Full Type I-IV cassette specifications with bias/EQ information
+- 📼 **Comprehensive Tape Type Support** - Full Type I-IV cassette specifications with bias/EQ information (informational display only)
 - 💾 **Enhanced Deck Profile System** - JSON presets for complete deck configurations
 - ⏰ **Always-Visible Configuration** - Timing and setup details displayed on all screens
 - 🏷️ **Proper Tape Length Support** - C60/C90/C120 cassette specifications with accurate timing
@@ -439,6 +439,9 @@ python decprec.py --counter-mode manual --counter-config deck_a.json
 | `C` | Clear all selected tracks |
 | `P` | Play/Pause track (toggle playback) |
 | `X` | Stop playback and reset position |
+| `1` | Play 400Hz test tone (30 seconds) |
+| `2` | Play 1kHz test tone (30 seconds) |
+| `3` | Play 10kHz test tone (30 seconds) |
 | `←` / `→` | Rewind/Forward 10 seconds (while playing) |
 | `[` / `]` | Jump to previous/next track and play (stops at boundaries) |
 | `Enter` | Start recording process |
@@ -450,6 +453,9 @@ python decprec.py --counter-mode manual --counter-config deck_a.json
 | `↑` / `↓` / `K` / `J` | Navigate tracks (keeps current track playing) |
 | `P` | Play/Pause track (toggle playback) |
 | `X` | Stop playback and reset position |
+| `1` | Play 400Hz test tone (30 seconds) |
+| `2` | Play 1kHz test tone (30 seconds) |
+| `3` | Play 10kHz test tone (30 seconds) |
 | `←` / `→` | Rewind/Forward 10 seconds (while playing) |
 | `[` / `]` | Jump to previous/next track and play |
 | `Enter` | Proceed to recording |
@@ -638,7 +644,7 @@ python3 decprec.py --calibrate-counter --counter-config my_deck.json
   - Color-coded zones for visual feedback
 - **Dynamic Color Zones:** White (0-85%) → Red (85-100%) peak indicators
 - **Waveform Analysis:** Pre-computed RMS levels with 50ms chunk resolution
-- **Retro Box Drawing:** Double-line borders and frames (╔═╗╚╝)
+- **Professional Box Drawing:** Double-line borders and frames (╔═╗╚╝)
 - **Large Digital Countdown:** Massive 7-segment style numbers (7 lines tall) with blink effect
 - **Recording Reminder:** Red blinking text during countdown: "PRESS RECORD ON YOUR DECK WHEN COUNTDOWN HITS 0"
 - **Progress Bars:** Color-coded bars (█ and ░) for track and total time
@@ -800,7 +806,7 @@ Contributions welcome! Feel free to submit issues or pull requests.
 ## 🙏 Acknowledgments
 
 - Inspired by classic tape deck recording workflows
-- 80s home recording studio aesthetics
+- Professional recording studio interface
 - Mixtape culture and physical media preservation
 
 ---

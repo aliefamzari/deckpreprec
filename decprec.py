@@ -1,50 +1,72 @@
 ﻿#!/usr/bin/env python3
 """
-Retro 80s Tape Deck Recording CLI
+Professional Tape Deck Recording CLI
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-A nostalgic tape deck recording utility with 80s-inspired aesthetics for
-preparing and recording audio tracks to cassette tapes.
+A comprehensive tape deck recording utility for preparing and recording high-quality 
+audio tracks to cassette tapes with professional-grade features and precision timing.
 
 Features:
-  • Interactive curses-based UI with retro color scheme (cyan, magenta, yellow)
-  • ASCII cassette tape art and box-drawing borders
-  • Audio normalization with caching (skips existing normalized files)
-  • 4-digit tape counter with configurable rate
-  • Real-time VU meters displaying actual audio waveform levels (L/R channels)
-  • Pre-analyzed audio with RMS-based level detection
-  • Track selection with duration validation
-  • 10-second prep countdown before recording
-  • Real-time playback monitoring with track positions
-  • Generates detailed tracklist reference file with counter positions
+  • Professional curses-based UI with responsive design and modern color scheme
+  • ASCII cassette tape art with authentic tape deck aesthetics
+  • Advanced audio normalization (Peak/LUFS) with intelligent caching system
+  • Multi-mode tape counter system:
+    - Manual Calibrated: Uses actual deck measurements with interpolation
+    - Auto Physics: Realistic reel simulation with non-linear rates
+    - Static Linear: Constant rate throughout tape
+  • Real-time VU meters with dBFS scale and actual waveform analysis (L/R channels)
+  • Test tone generator (400Hz, 1kHz, 10kHz) for level calibration
+  • Interactive track selection with capacity validation and duration warnings
+  • Pre-analyzed audio with RMS-based level detection and preview capability
+  • Configurable leader gaps, track gaps, and tape types (I, II, IV) - informational display only
+  • 10-second prep countdown with cancel option
+  • Real-time playback monitoring with seek controls and track jumping
+  • Detailed tracklist generation with precise counter positions and timestamps
+  • Deck profile presets for different tape deck configurations
+  • Counter calibration wizard for manual measurement-based timing
 
 Usage:
-  python3 decprec.py --folder ./tracks --track-gap 5 --duration 60 --counter-rate 1.0 --leader-gap 10
+  python3 decprec.py [OPTIONS]
+  python3 decprec.py --folder ./tracks --counter-mode manual --tape-type "Type II"
+  python3 decprec.py --deck-profile profiles/aiwa_adf780.json
 
 Arguments:
-  --folder        Path to audio tracks directory (default: ./tracks)
-  --track-gap     Gap between tracks in seconds (default: 5)
-  --duration      Maximum tape duration in minutes (default: 60)
-  --counter-rate  Tape counter increments per second (default: 1.0)
-  --leader-gap    Leader gap before first track in seconds (default: 10)
+  --folder           Path to audio tracks directory (default: ./tracks)
+  --track-gap        Gap between tracks in seconds (default: 5)
+  --duration         Maximum tape duration in minutes (default: 60)
+  --counter-mode     Counter calculation mode: manual|auto|static (default: static)
+  --counter-rate     Static counter rate counts/second (default: 1.0)
+  --leader-gap       Leader gap before first track in seconds (default: 10)
+  --tape-type        Tape formulation (informational): "Type I"|"Type II"|"Type IV" (default: "Type I")
+  --normalization    Normalization method: peak|lufs (default: lufs)
+  --target-lufs      Target LUFS level for LUFS normalization (default: -14.0)
+  --calibrate-counter Run counter calibration wizard
+  --deck-profile     Load complete deck configuration from JSON file
 
 Keyboard Controls:
-  Main Menu:
-    Up/Down       Navigate tracks
+  Main Menu & Normalization Preview:
+    ↑/↓, K/J      Navigate tracks
     Space         Select/deselect track
-    P             Preview track
-    X             Stop preview
-    Enter         Normalize and start recording
-    Q             Quit
+    C             Clear all selections
+    P             Play/pause preview
+    X             Stop preview and reset position
+    1/2/3         Play test tones (400Hz/1kHz/10kHz)
+    ←/→, H/L      Rewind/forward 10 seconds during preview
+    [/]           Jump to previous/next track and play
+    Enter         Start normalization/recording process
+    Q             Quit application or return to menu
   
   Recording Mode:
     Q             Return to main menu
 
 Supported Formats: MP3, WAV, FLAC, WebM, M4A, AAC, OGG
 
-Requirements: ffmpeg, ffprobe, ffplay, pydub
+System Requirements: 
+  - Python 3.7+
+  - ffmpeg, ffprobe, ffplay
+  - pydub, numpy
 
-Author: Improved by GitHub Copilot
+Author: Enhanced by GitHub Copilot
 License: MIT
 """
 
@@ -61,6 +83,8 @@ import math
 import numpy as np
 from datetime import datetime
 from pydub import AudioSegment
+from pydub.generators import Sine
+import tempfile
 
 # --- Deck Profile Preset Loader ---
 def load_deck_profile(profile_path, args):
@@ -118,7 +142,7 @@ parser.add_argument("--leader-gap", type=int, default=10, help="Leader gap befor
 parser.add_argument("--normalization", type=str, default="lufs", choices=["peak", "lufs"], help="Normalization method: 'peak' or 'lufs' (default: lufs)")
 parser.add_argument("--target-lufs", type=float, default=-14.0, help="Target LUFS level for LUFS normalization (default: -14.0)")
 parser.add_argument("--audio-latency", type=float, default=0.0, help="Audio latency compensation in seconds for VU meter sync (default: 0.0, try 0.1-0.5 if audio lags behind meters)")
-parser.add_argument("--tape-type", type=str, default="Type I", choices=["Type I", "Type II", "Type III", "Type IV"], help="Cassette tape type: Type I (Normal/Ferric), Type II (Chrome/High Bias), Type III (Ferrochrome), Type IV (Metal) (default: Type I)")
+parser.add_argument("--tape-type", type=str, default="Type I", choices=["Type I", "Type II", "Type III", "Type IV"], help="Cassette tape type (informational only): Type I (Normal/Ferric), Type II (Chrome/High Bias), Type III (Ferrochrome), Type IV (Metal) - for display purposes only, does not control deck bias settings (default: Type I)")
 parser.add_argument("--ffmpeg-path", type=str, default="/usr/bin/ffmpeg", help="Path to ffmpeg binary (default: /usr/bin/ffmpeg)")
 parser.add_argument("--deck-profile", type=str, default=None, help="Path to deck profile preset JSON (overrides most options)")
 args = parser.parse_args()
@@ -157,6 +181,8 @@ AudioSegment.converter = FFMPEG_PATH
 
 # Global ffplay process used for preview playback (from main menu)
 ffplay_proc = None
+# Global variable to track current test tone frequency
+current_test_tone_freq = None
 
 # Color pairs (initialized in curses)
 COLOR_CYAN = 1
@@ -181,7 +207,7 @@ def safe_addstr(stdscr, y, x, text, attr=0):
         pass
 
 def init_colors():
-    """Initialize 80s-style color scheme"""
+    """Initialize modern color scheme"""
     if curses.has_colors():
         curses.start_color()
         curses.init_pair(1, curses.COLOR_CYAN, curses.COLOR_BLACK)
@@ -192,8 +218,8 @@ def init_colors():
         curses.init_pair(6, curses.COLOR_BLUE, curses.COLOR_BLACK)
         curses.init_pair(7, curses.COLOR_WHITE, curses.COLOR_BLACK)
 
-def draw_retro_border(stdscr, y, x, width, title=""):
-    """Draw 80s-style border with optional title"""
+def draw_modern_border(stdscr, y, x, width, title=""):
+    """Draw modern border with optional title"""
     try:
         stdscr.addstr(y, x, "╔" + "═" * (width - 2) + "╗", curses.color_pair(COLOR_CYAN))
         if title:
@@ -570,21 +596,54 @@ def draw_config_info(stdscr, y, x, compact=False, selected_tracks=None, show_war
     }
     
     if compact:
-        # Single line compact format for recording mode
-        config_text = f"Tape Counter Config: {mode_names.get(COUNTER_MODE, COUNTER_MODE)}"
+        # Multi-line detailed format for recording mode (changed to match preview mode)
+        safe_addstr(stdscr, y, x, "CONFIGURATION:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+        
+        counter_info = f"Counter: {mode_names.get(COUNTER_MODE, COUNTER_MODE)}"
         if COUNTER_MODE == "static":
-            config_text += f" ({COUNTER_RATE:.1f})"
+            counter_info += f" ({COUNTER_RATE} counts/sec)"
         elif COUNTER_MODE == "manual" and CALIBRATION_DATA:
             deck = CALIBRATION_DATA.get('deck_model', 'Unknown')
-            tape = CALIBRATION_DATA.get('tape_type', TAPE_TYPE)
-            if deck != 'Unknown':
-                config_text += f" ({deck}/{tape})"
-        config_text += f" | {NORMALIZATION_METHOD.upper()}"
+            counter_info += f" ({deck})"
+        safe_addstr(stdscr, y + 1, x, counter_info, curses.color_pair(COLOR_CYAN))
+        
+        # Tape type information
+        tape_info = get_tape_type_info(TAPE_TYPE)
+        tape_line = f"Tape: {TAPE_TYPE} - {tape_info['name']} ({tape_info['bias']})"
+        safe_addstr(stdscr, y + 2, x, tape_line, curses.color_pair(COLOR_CYAN))
+        
+        norm_info = f"Audio: {NORMALIZATION_METHOD.upper()} normalization"
         if NORMALIZATION_METHOD == "lufs":
-            config_text += f" {TARGET_LUFS:+.1f}dB"
-        config_text += f" | Gap:{TRACK_GAP_SECONDS}s | Lead:{LEADER_GAP_SECONDS}s"
-        safe_addstr(stdscr, y, x, config_text, curses.color_pair(COLOR_CYAN))
-        return 1  # Height used
+            norm_info += f" (target: {TARGET_LUFS:+.1f} LUFS)"
+        safe_addstr(stdscr, y + 3, x, norm_info, curses.color_pair(COLOR_CYAN))
+        
+        timing_info = f"Timing: {LEADER_GAP_SECONDS}s leader + {TRACK_GAP_SECONDS}s gaps"
+        safe_addstr(stdscr, y + 4, x, timing_info, curses.color_pair(COLOR_CYAN))
+        
+        # Add Total Recording Time and Tape Length to compact mode
+        if selected_tracks and len(selected_tracks) > 0:
+            total_duration = sum(track.get('duration', 0) for track in selected_tracks)
+            total_with_gaps = total_duration + (TRACK_GAP_SECONDS * (len(selected_tracks) - 1)) + LEADER_GAP_SECONDS
+        else:
+            total_with_gaps = 0
+        
+        safe_addstr(stdscr, y + 5, x, "Total Recording Time: ", curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, y + 5, x + 22, format_duration(total_with_gaps), curses.color_pair(COLOR_CYAN))
+        
+        # Tape length with C-type indicator
+        tape_type_indicator = ""
+        if TOTAL_DURATION_MINUTES == 30:
+            tape_type_indicator = " (C60)"
+        elif TOTAL_DURATION_MINUTES == 45:
+            tape_type_indicator = " (C90)"
+        elif TOTAL_DURATION_MINUTES == 60:
+            tape_type_indicator = " (C120)"
+        
+        safe_addstr(stdscr, y + 6, x, "Tape Length: ", curses.color_pair(COLOR_CYAN))
+        tape_length_text = f"{TOTAL_DURATION_MINUTES}min{tape_type_indicator}"
+        safe_addstr(stdscr, y + 6, x + 13, tape_length_text, curses.color_pair(COLOR_CYAN))
+        
+        return 7  # Height used for compact mode (now includes recording time and tape length)
     else:
         # Multi-line detailed format for main menu and preview
         safe_addstr(stdscr, y, x, "CONFIGURATION:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
@@ -649,7 +708,7 @@ def draw_config_info(stdscr, y, x, compact=False, selected_tracks=None, show_war
 
 def draw_vu_meter(stdscr, y, x, level, max_width=40, label=""):
     """
-    Draw a retro VU meter with segmented blocks
+    Draw a professional VU meter with segmented blocks
     level: float from 0.0 to 1.0
     """
     # Calculate number of blocks (each block = 2 chars width + 1 space)
@@ -1093,8 +1152,9 @@ def write_deck_tracklist(normalized_tracks, track_gap, folder, counter_rate, lea
 
 def show_normalization_summary(stdscr, normalized_tracks):
     """Show normalized tracks with playback preview capability"""
+    global current_test_tone_freq
     current_track_idx = 0  # Currently highlighted track
-    playing_track_idx = -1  # Track that is actually playing
+    playing_track_idx = -1  # Track that is actually playing (-2 for test tone)
     playing = False
     preview_proc = None
     seek_position = 0.0  # Current seek position in seconds
@@ -1103,9 +1163,10 @@ def show_normalization_summary(stdscr, normalized_tracks):
     
     def stop_preview():
         nonlocal preview_proc, playing, seek_position, play_start_time, playing_track_idx, playback_start_time
+        global current_test_tone_freq
         if preview_proc is not None and preview_proc.poll() is None:
-            # Calculate current position before stopping
-            if play_start_time is not None:
+            # Calculate current position before stopping (only for regular tracks, not test tones)
+            if play_start_time is not None and playing_track_idx >= 0:
                 elapsed = time.time() - play_start_time
                 seek_position += elapsed
             preview_proc.terminate()
@@ -1114,6 +1175,7 @@ def show_normalization_summary(stdscr, normalized_tracks):
         playing_track_idx = -1
         play_start_time = None
         playback_start_time = None
+        current_test_tone_freq = None
     
     def start_preview(idx, start_pos=0.0):
         nonlocal preview_proc, playing, playing_track_idx, seek_position, play_start_time, playback_start_time
@@ -1153,9 +1215,9 @@ def show_normalization_summary(stdscr, normalized_tracks):
         max_y, max_x = stdscr.getmaxyx()
         
         # Header
-        safe_addstr(stdscr, 0, 0, "═" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, 0, 0, "═" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
         safe_addstr(stdscr, 1, 15, "NORMALIZATION COMPLETE - PREVIEW MODE", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-        safe_addstr(stdscr, 2, 0, "═" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, 2, 0, "═" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
         
         # Configuration info - create track list for timing calculation
         track_list = [{'duration': track['audio'].duration_seconds} for track in normalized_tracks]
@@ -1165,7 +1227,7 @@ def show_normalization_summary(stdscr, normalized_tracks):
         show_warning = at_capacity  # No time-based warning in preview mode
         
         config_height = draw_config_info(stdscr, 3, 2, selected_tracks=track_list, show_warning=show_warning)
-        safe_addstr(stdscr, 3 + config_height, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, 3 + config_height, 0, "─" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
         
         # Playback Status Section
         playback_section_y = 3 + config_height + 2
@@ -1179,7 +1241,7 @@ def show_normalization_summary(stdscr, normalized_tracks):
         stdscr.move(meter_y + 1, 0)
         stdscr.clrtoeol()
         
-        if playing:
+        if playing and playing_track_idx >= 0:
             # Calculate current playback position with latency compensation
             current_pos = seek_position
             if play_start_time is not None:
@@ -1194,17 +1256,34 @@ def show_normalization_summary(stdscr, normalized_tracks):
             position_text = f"Position: {format_duration(current_pos)} / {format_duration(track_duration)}"
             safe_addstr(stdscr, meter_y, 0, status_text, curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
             safe_addstr(stdscr, meter_y + 1, 0, position_text, curses.color_pair(COLOR_YELLOW))
+        elif playing and playing_track_idx == -2:
+            # Test tone is playing
+            current_pos = time.time() - play_start_time if play_start_time else 0
+            tone_duration = 30.0
+            
+            freq_display = f"{current_test_tone_freq}Hz" if current_test_tone_freq else "Test Tone"
+            if current_test_tone_freq == 1000:
+                freq_display = "1kHz"
+            elif current_test_tone_freq == 10000:
+                freq_display = "10kHz"
+            status_text = f"NOW PLAYING: Test Tone {freq_display}"
+            position_text = f"Position: {format_duration(current_pos)} / {format_duration(tone_duration)}"
+            safe_addstr(stdscr, meter_y, 0, status_text, curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+            safe_addstr(stdscr, meter_y + 1, 0, position_text, curses.color_pair(COLOR_YELLOW))
+            
+            # Generate fake VU meter activity for test tones
+            level_l = level_r = 0.8  # Fixed level for test tones
         else:
             level_l, level_r = 0.0, 0.0
             safe_addstr(stdscr, meter_y, 0, "Ready to preview tracks", curses.color_pair(COLOR_WHITE))
         
-        safe_addstr(stdscr, meter_y + 2, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, meter_y + 2, 0, "─" * min(78, max_x - 1), curses.color_pair(COLOR_CYAN))
         draw_vu_meter(stdscr, meter_y + 3, 2, level_l, max_width=50, label="L")
-        # dB scale between meters
-        db_scale = "    -60  -40  -30  -20  -12   -6   -3    0 dB"
+        # dBFS scale between meters
+        db_scale = "    -60  -40  -30  -20  -12   -6   -3    0 dBFS"
         safe_addstr(stdscr, meter_y + 4, 2, db_scale, curses.color_pair(COLOR_YELLOW))
         draw_vu_meter(stdscr, meter_y + 5, 2, level_r, max_width=50, label="R")
-        safe_addstr(stdscr, meter_y + 6, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, meter_y + 6, 0, "─" * min(78, max_x - 1), curses.color_pair(COLOR_CYAN))
         
         # Track list with method indicator
         tracklist_y = meter_y + 8
@@ -1245,31 +1324,39 @@ def show_normalization_summary(stdscr, normalized_tracks):
         
         # Controls footer
         footer_y = tracklist_y + 2 + min(len(normalized_tracks), max_y - tracklist_y - 12)
-        safe_addstr(stdscr, footer_y, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, footer_y, 0, "─" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
         safe_addstr(stdscr, footer_y + 1, 0, "CONTROLS:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 2, 0, "  ↑/↓: Navigate  ", curses.color_pair(COLOR_WHITE))
-        safe_addstr(stdscr, footer_y + 2, 35, "P", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 2, 36, ": Play  ", curses.color_pair(COLOR_WHITE))
-        safe_addstr(stdscr, footer_y + 2, 43, "X", curses.color_pair(COLOR_RED) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 2, 44, ": Stop", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 2, 0, "  ↑/↓: Navigate   ", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 2, 20, "P", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+        safe_addstr(stdscr, footer_y + 2, 21, ": Play   ", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 2, 30, "X", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+        safe_addstr(stdscr, footer_y + 2, 31, ": Stop", curses.color_pair(COLOR_WHITE))
         
         safe_addstr(stdscr, footer_y + 3, 0, "  ", curses.color_pair(COLOR_WHITE))
         safe_addstr(stdscr, footer_y + 3, 2, "←", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 3, 3, ": Rewind 10s  ", curses.color_pair(COLOR_WHITE))
-        safe_addstr(stdscr, footer_y + 3, 17, "→", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 3, 18, ": Forward 10s", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 3, 3, ": Rewind 10s   ", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 3, 20, "→", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+        safe_addstr(stdscr, footer_y + 3, 21, ": Forward 10s", curses.color_pair(COLOR_WHITE))
         
         safe_addstr(stdscr, footer_y + 4, 0, "  ", curses.color_pair(COLOR_WHITE))
         safe_addstr(stdscr, footer_y + 4, 2, "[", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 4, 3, ": Prev Track  ", curses.color_pair(COLOR_WHITE))
-        safe_addstr(stdscr, footer_y + 4, 17, "]", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 4, 18, ": Next Track", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 4, 3, ": Prev Track   ", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 4, 20, "]", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
+        safe_addstr(stdscr, footer_y + 4, 21, ": Next Track", curses.color_pair(COLOR_WHITE))
         
         safe_addstr(stdscr, footer_y + 5, 0, "  ", curses.color_pair(COLOR_WHITE))
-        safe_addstr(stdscr, footer_y + 5, 2, "ENTER", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 5, 7, ": Start Recording  ", curses.color_pair(COLOR_WHITE))
-        safe_addstr(stdscr, footer_y + 5, 17, "Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 5, 18, ": Cancel", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 5, 2, "1", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+        safe_addstr(stdscr, footer_y + 5, 3, ": 400Hz   ", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 5, 13, "2", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+        safe_addstr(stdscr, footer_y + 5, 14, ": 1kHz   ", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 5, 23, "3", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+        safe_addstr(stdscr, footer_y + 5, 24, ": 10kHz", curses.color_pair(COLOR_WHITE))
+        
+        safe_addstr(stdscr, footer_y + 6, 0, "  ", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 6, 2, "ENTER", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+        safe_addstr(stdscr, footer_y + 6, 7, ": Start Recording   ", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 6, 27, "Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+        safe_addstr(stdscr, footer_y + 6, 28, ": Cancel", curses.color_pair(COLOR_WHITE))
         
         stdscr.refresh()
         
@@ -1340,6 +1427,33 @@ def show_normalization_summary(stdscr, normalized_tracks):
             elif key in (ord('x'), ord('X')):
                 stop_preview()
                 seek_position = 0.0
+            elif key == ord('1'):
+                # Play 400Hz test tone
+                stop_preview()
+                if play_test_tone(400, 30.0):
+                    current_test_tone_freq = 400
+                    playing_track_idx = -2  # Special marker for test tone
+                    playing = True
+                    play_start_time = time.time()
+                    preview_proc = ffplay_proc  # Use the global ffplay_proc
+            elif key == ord('2'):
+                # Play 1kHz test tone
+                stop_preview()
+                if play_test_tone(1000, 30.0):
+                    current_test_tone_freq = 1000
+                    playing_track_idx = -2  # Special marker for test tone
+                    playing = True
+                    play_start_time = time.time()
+                    preview_proc = ffplay_proc  # Use the global ffplay_proc
+            elif key == ord('3'):
+                # Play 10kHz test tone
+                stop_preview()
+                if play_test_tone(10000, 30.0):
+                    current_test_tone_freq = 10000
+                    playing_track_idx = -2  # Special marker for test tone
+                    playing = True
+                    play_start_time = time.time()
+                    preview_proc = ffplay_proc  # Use the global ffplay_proc
         
         time.sleep(0.05)  # Reduce CPU usage
 
@@ -1561,15 +1675,15 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             
             # Draw title first
             title_y = 0
-            safe_addstr(stdscr, title_y, 0, "╔" + "═" * 78 + "╗", curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, title_y, 0, "╔" + "═" * min(78, max_x - 2) + "╗", curses.color_pair(COLOR_CYAN))
             safe_addstr(stdscr, title_y + 1, 28, "LEADER GAP - STAND BY", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
-            safe_addstr(stdscr, title_y + 2, 0, "╚" + "═" * 78 + "╝", curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, title_y + 2, 0, "╚" + "═" * min(78, max_x - 2) + "╝", curses.color_pair(COLOR_CYAN))
             
-            # Compact configuration info
-            draw_config_info(stdscr, title_y + 3, 2, compact=True)
+            # Compact configuration info (now multi-line, needs more space)
+            config_height = draw_config_info(stdscr, title_y + 3, 2, compact=True)
             
-            # Draw tape counter below title
-            counter_y = title_y + 4
+            # Draw tape counter below configuration with proper spacing
+            counter_y = title_y + 3 + config_height + 1
             
             # Start from left with consistent margin
             digit_width = 7
@@ -1659,15 +1773,15 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
                 
                 # Draw title first
                 title_y = 0
-                safe_addstr(stdscr, title_y, 0, "╔" + "═" * 78 + "╗", curses.color_pair(COLOR_CYAN))
+                safe_addstr(stdscr, title_y, 0, "╔" + "═" * min(78, max_x - 2) + "╗", curses.color_pair(COLOR_CYAN))
                 safe_addstr(stdscr, title_y + 1, 30, "DECK RECORDING MODE", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
-                safe_addstr(stdscr, title_y + 2, 0, "╚" + "═" * 78 + "╝", curses.color_pair(COLOR_CYAN))
+                safe_addstr(stdscr, title_y + 2, 0, "╚" + "═" * min(78, max_x - 2) + "╝", curses.color_pair(COLOR_CYAN))
                 
-                # Compact configuration info
-                draw_config_info(stdscr, title_y + 3, 2, compact=True)
+                # Compact configuration info (now multi-line, needs more space)
+                config_height = draw_config_info(stdscr, title_y + 3, 2, compact=True)
                 
-                # Draw tape counter below title
-                counter_y = title_y + 4
+                # Draw tape counter below configuration with proper spacing
+                counter_y = title_y + 3 + config_height + 1
                 
                 # Start from left with consistent margin
                 digit_width = 7
@@ -1690,8 +1804,10 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
                 padding = (total_counter_width - len(label_text)) // 2
                 safe_addstr(stdscr, label_y, start_x + padding, label_text, curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
                 
-                safe_addstr(stdscr, title_y + 4, 2, f"AVG dBFS: {avg_dbfs:+.2f}", curses.color_pair(COLOR_CYAN))
-                safe_addstr(stdscr, title_y + 4, 25, f"TRACK GAP: {track_gap}s", curses.color_pair(COLOR_CYAN))
+                # Additional stats below configuration
+                stats_y = title_y + 3 + config_height
+                safe_addstr(stdscr, stats_y, 2, f"AVG dBFS: {avg_dbfs:+.2f}", curses.color_pair(COLOR_CYAN))
+                safe_addstr(stdscr, stats_y, 25, f"TRACK GAP: {track_gap}s", curses.color_pair(COLOR_CYAN))
             
             # VU Meters - real audio levels from waveform analysis (update every frame for smooth animation)
             title_y = 4
@@ -1699,13 +1815,13 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             # Apply latency compensation to delay meters and match audio output
             elapsed_ms = int((track_elapsed - AUDIO_LATENCY) * 1000)
             level_l, level_r = get_audio_level_at_time(track['audio_levels'], elapsed_ms)
-            safe_addstr(stdscr, meter_y, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, meter_y, 0, "─" * min(78, max_x - 1), curses.color_pair(COLOR_CYAN))
             draw_vu_meter(stdscr, meter_y + 1, 2, level_l, max_width=50, label="L")
             # dB scale between meters
             db_scale = "    -60  -40  -30  -20  -12   -6   -3    0 dB"
             safe_addstr(stdscr, meter_y + 2, 2, db_scale, curses.color_pair(COLOR_YELLOW))
             draw_vu_meter(stdscr, meter_y + 3, 2, level_r, max_width=50, label="R")
-            safe_addstr(stdscr, meter_y + 4, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, meter_y + 4, 0, "─" * min(78, max_x - 1), curses.color_pair(COLOR_CYAN))
             
             # NOW PLAYING section and track list (only update when counter/progress changes)
             if counter_changed or progress_changed or first_draw:
@@ -1747,7 +1863,7 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
                 footer_y = tracks_y + 1 + (len(normalized_tracks) * 3) + 1
                 max_y, max_x = stdscr.getmaxyx()
                 if footer_y < max_y - 5:
-                    safe_addstr(stdscr, footer_y, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+                    safe_addstr(stdscr, footer_y, 0, "─" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
                     safe_addstr(stdscr, footer_y + 1, 0, f"TOTAL RECORDING TIME: {format_duration(elapsed)}/{format_duration(total_time)}", curses.color_pair(COLOR_YELLOW))
                     # Total progress bar
                     bar_len = 60
@@ -1802,6 +1918,43 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
     stdscr.clear()
 
 
+def generate_test_tone(frequency_hz, duration_seconds=30.0):
+    """Generate a test tone at specified frequency and return temporary file path."""
+    # Generate sine wave
+    tone = Sine(frequency_hz).to_audio_segment(duration=duration_seconds * 1000)  # duration in ms
+    
+    # Create temporary file
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+    temp_path = temp_file.name
+    temp_file.close()
+    
+    # Export tone to temporary file
+    tone.export(temp_path, format="wav")
+    
+    return temp_path
+
+def play_test_tone(frequency_hz, duration_seconds=30.0):
+    """Generate and play a test tone at specified frequency."""
+    try:
+        tone_path = generate_test_tone(frequency_hz, duration_seconds)
+        play_audio(tone_path)
+        
+        # Clean up temporary file after a delay (in a separate thread to avoid blocking)
+        def cleanup_after_delay():
+            import threading
+            def cleanup():
+                time.sleep(duration_seconds + 2)  # Wait a bit longer than the tone duration
+                try:
+                    os.unlink(tone_path)
+                except:
+                    pass
+            threading.Thread(target=cleanup, daemon=True).start()
+        
+        cleanup_after_delay()
+        return True
+    except Exception as e:
+        return False
+
 def play_audio(path, seek_pos=0.0):
     """Start ffplay for preview with optional seek position. Uses global ffplay_proc so main menu can stop it."""
     global ffplay_proc
@@ -1835,7 +1988,7 @@ def main_menu(folder):
 
     def draw_menu(stdscr):
         nonlocal current_index, selected_tracks, total_selected_duration, paused
-        global ffplay_proc
+        global ffplay_proc, current_test_tone_freq
         init_colors()
         curses.curs_set(0)
         stdscr.nodelay(True)  # Non-blocking input for real-time updates
@@ -1896,9 +2049,9 @@ def main_menu(folder):
             else:
                 header_y = 0
             
-            safe_addstr(stdscr, header_y, 0, "═" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, header_y, 0, "═" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
             safe_addstr(stdscr, header_y + 1, 20, "TAPE DECK PREP MENU", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
-            safe_addstr(stdscr, header_y + 2, 0, "═" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, header_y + 2, 0, "═" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
             
             # Calculate capacity warning before displaying config
             at_capacity = total_selected_duration >= TOTAL_DURATION_MINUTES * 60
@@ -1906,7 +2059,7 @@ def main_menu(folder):
             
             # Configuration info
             config_height = draw_config_info(stdscr, header_y + 3, 2, selected_tracks=selected_tracks, show_warning=show_warning)
-            safe_addstr(stdscr, header_y + 3 + config_height, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, header_y + 3 + config_height, 0, "─" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
             
             # Playback Status Section
             playback_section_y = header_y + 3 + config_height + 2
@@ -1937,17 +2090,34 @@ def main_menu(folder):
                     level_l, level_r = get_audio_level_at_time(preview_audio_levels, elapsed_ms)
                 else:
                     level_l, level_r = 0.0, 0.0
+            elif previewing_index == -2 and play_start_time is not None:
+                # Test tone is playing
+                current_pos = time.time() - play_start_time
+                tone_duration = 30.0
+                
+                freq_display = f"{current_test_tone_freq}Hz" if current_test_tone_freq else "Test Tone"
+                if current_test_tone_freq == 1000:
+                    freq_display = "1kHz"
+                elif current_test_tone_freq == 10000:
+                    freq_display = "10kHz"
+                status_text = f"NOW PLAYING: Test Tone {freq_display}"
+                position_text = f"Position: {format_duration(current_pos)} / {format_duration(tone_duration)}"
+                safe_addstr(stdscr, meter_y, 0, status_text, curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+                safe_addstr(stdscr, meter_y + 1, 0, position_text, curses.color_pair(COLOR_YELLOW))
+                
+                # Generate fake VU meter activity for test tones
+                level_l = level_r = 0.8  # Fixed level for test tones
             else:
                 level_l, level_r = 0.0, 0.0
                 safe_addstr(stdscr, meter_y, 0, "Ready to preview tracks", curses.color_pair(COLOR_WHITE))
             
-            safe_addstr(stdscr, meter_y + 2, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, meter_y + 2, 0, "─" * min(78, max_x - 1), curses.color_pair(COLOR_CYAN))
             draw_vu_meter(stdscr, meter_y + 3, 2, level_l, max_width=50, label="L")
             # dB scale between meters
             db_scale = "    -60  -40  -30  -20  -12   -6   -3    0 dB"
             safe_addstr(stdscr, meter_y + 4, 2, db_scale, curses.color_pair(COLOR_YELLOW))
             draw_vu_meter(stdscr, meter_y + 5, 2, level_r, max_width=50, label="R")
-            safe_addstr(stdscr, meter_y + 6, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, meter_y + 6, 0, "─" * min(78, max_x - 1), curses.color_pair(COLOR_CYAN))
             
             tracklist_y = meter_y + 8
             safe_addstr(stdscr, tracklist_y, 0, f"TRACKS IN FOLDER ({folder}):", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
@@ -1957,10 +2127,22 @@ def main_menu(folder):
                 if ffplay_proc is None or ffplay_proc.poll() is not None:
                     previewing_index = -1  # Preview ended
                     play_start_time = None
+            elif previewing_index == -2:  # Test tone
+                if ffplay_proc is None or ffplay_proc.poll() is not None:
+                    previewing_index = -1  # Test tone ended
+                    play_start_time = None
             
-            # Scrollable track list with fixed visible window
+            # Calculate dynamic track list size to ensure controls are always visible
             track_start_y = tracklist_y + 1
-            max_visible_tracks = 10  # Fixed number of visible tracks
+            
+            # Reserve space for: selected tracks section, footer, controls (about 15 lines minimum)
+            reserved_lines = 15
+            selected_tracks_lines = min(len(selected_tracks), 5) if selected_tracks else 0  # Max 5 selected tracks shown
+            reserved_lines += selected_tracks_lines
+            
+            # Calculate maximum visible tracks based on available terminal space
+            available_space = max_y - track_start_y - reserved_lines
+            max_visible_tracks = max(3, min(available_space, len(tracks)))  # Minimum 3 tracks, maximum available space
             
             # Calculate scroll offset to keep current track visible
             scroll_offset = max(0, current_index - max_visible_tracks + 1)
@@ -2040,7 +2222,7 @@ def main_menu(folder):
             else:
                 sel_y = track_display_start + (visible_end - scroll_offset) + 1
             if sel_y < max_y - 8:
-                safe_addstr(stdscr, sel_y, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+                safe_addstr(stdscr, sel_y, 0, "─" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
                 safe_addstr(stdscr, sel_y + 1, 0, f"SELECTED TRACKS ({len(selected_tracks)}):", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
                 
                 # List selected tracks in order
@@ -2062,7 +2244,7 @@ def main_menu(folder):
                 at_capacity = total_selected_duration >= TOTAL_DURATION_MINUTES * 60
                 show_warning = at_capacity or time.time() < capacity_warning_until
                 
-                safe_addstr(stdscr, footer_y, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+                safe_addstr(stdscr, footer_y, 0, "─" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
                 
                 # Controls
                 controls_y = footer_y + 2
@@ -2075,21 +2257,29 @@ def main_menu(folder):
                 
                 safe_addstr(stdscr, controls_y + 3, 0, "  ", curses.color_pair(COLOR_WHITE))
                 safe_addstr(stdscr, controls_y + 3, 2, "←", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 3, 3, ":Rewind 10s  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 3, 17, "→", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 3, 18, ":Forward 10s", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 3, 3, ":Rewind 10s   ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 3, 18, "→", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 3, 19, ":Forward 10s", curses.color_pair(COLOR_WHITE))
                 
                 safe_addstr(stdscr, controls_y + 4, 0, "  ", curses.color_pair(COLOR_WHITE))
                 safe_addstr(stdscr, controls_y + 4, 2, "[", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 4, 3, ":Prev Track  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 4, 17, "]", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 4, 18, ":Next Track", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 4, 3, ":Prev Track   ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 4, 18, "]", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 4, 19, ":Next Track", curses.color_pair(COLOR_WHITE))
                 
                 safe_addstr(stdscr, controls_y + 5, 0, "  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 5, 2, "ENTER", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 5, 7, ":Record  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 5, 17, "Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 5, 18, ":Quit", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 5, 2, "1", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 5, 3, ":400Hz  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 5, 11, "2", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 5, 12, ":1kHz  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 5, 19, "3", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 5, 20, ":10kHz", curses.color_pair(COLOR_WHITE))
+                
+                safe_addstr(stdscr, controls_y + 6, 0, "  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 6, 2, "ENTER", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 6, 7, ":Record   ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 6, 18, "Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 6, 19, ":Quit", curses.color_pair(COLOR_WHITE))
             stdscr.refresh()
 
             key = stdscr.getch()
@@ -2205,6 +2395,27 @@ def main_menu(folder):
                             preview_audio_levels = None
                         play_audio(track_path)
                         previewing_index = current_index
+                        play_start_time = time.time()
+                elif key == ord('1'):
+                    # Play 400Hz test tone
+                    stop_preview()
+                    if play_test_tone(400, 30.0):
+                        current_test_tone_freq = 400
+                        previewing_index = -2  # Special marker for test tone
+                        play_start_time = time.time()
+                elif key == ord('2'):
+                    # Play 1kHz test tone
+                    stop_preview()
+                    if play_test_tone(1000, 30.0):
+                        current_test_tone_freq = 1000
+                        previewing_index = -2  # Special marker for test tone
+                        play_start_time = time.time()
+                elif key == ord('3'):
+                    # Play 10kHz test tone
+                    stop_preview()
+                    if play_test_tone(10000, 30.0):
+                        current_test_tone_freq = 10000
+                        previewing_index = -2  # Special marker for test tone
                         play_start_time = time.time()
                 elif key in (curses.KEY_ENTER, 10, 13):
                     stdscr.nodelay(False)
