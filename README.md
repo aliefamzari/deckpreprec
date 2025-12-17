@@ -1,4 +1,47 @@
-﻿# 📼 Tape Deck/Prep/Record
+﻿## 📋 Requirements
+
+### Deck Profile Presets
+
+Save complete deck configurations in JSON files and load them instantly. Deck profiles can include tape type specifications, counter calibration, and all audio settings:
+
+**Complete profile example:**
+```json
+{
+  "deck_model": "AIWA AD-F780",
+  "tape_type": "Type II",
+  "tape_duration": 45,
+  "counter_mode": "manual",
+  "counter_config": "counter_calibration_aiwa.json",
+  "counter_rate": 1.35,
+  "leader_gap": 10,
+  "track_gap": 5,
+  "normalization": "lufs",
+  "target_lufs": -14.0,
+  "audio_latency": 0.2,
+  "ffmpeg_path": "/usr/bin/ffmpeg"
+}
+```
+
+**Usage:**
+```bash
+# Load complete deck profile
+python3 decprec.py --deck-profile deck_profiles/aiwa_adf780.json --folder ./tracks
+
+# Override specific settings
+python3 decprec.py --deck-profile deck_profiles/aiwa_adf780.json --tape-type "Type I" --folder ./tracks
+```
+
+**Profile Directory Structure:**
+```
+deck_profiles/
+├── aiwa_adf780.json          # AIWA AD-F780 (Type II optimized)
+├── sony_tcwe475.json         # Sony TC-WE475 (dual-well)
+├── pioneer_ctr305.json       # Pioneer CT-R305 (basic)
+└── technics_rsx205.json      # Technics RS-X205 (metal capable)
+```
+
+Any command-line argument will override the profile value, allowing flexible customization.
+# 📼 Tape Deck/Prep/Record
 
 A nostalgic cassette tape recording utility with. Perfect for mixtapes nerd curated playlists to physical cassette tapes with professional-quality preparation and timing control.
 
@@ -50,6 +93,34 @@ A nostalgic cassette tape recording utility with. Perfect for mixtapes nerd cura
 - 🔧 **Audio Latency Compensation** - Adjustable sync between VU meters and audio output for perfect timing
 - 📂 **Folder Path Display** - Shows current working folder in track list header
 - 🔴 **Capacity Warning** - Red blinking alert when track selection exceeds tape length
+- 📼 **Comprehensive Tape Type Support** - Full Type I-IV cassette specifications with bias/EQ information
+- 💾 **Enhanced Deck Profile System** - JSON presets for complete deck configurations
+- ⏰ **Always-Visible Configuration** - Timing and setup details displayed on all screens
+- 🏷️ **Proper Tape Length Support** - C60/C90/C120 cassette specifications with accurate timing
+
+## 📼 Tape Types & Specifications
+
+The script supports all four major cassette tape types with authentic technical specifications:
+
+| Type | Name | Bias | Equalization | Characteristics |
+|------|------|------|--------------|-----------------|
+| **Type I** | Normal/Ferric | 120µs | 120µs | Standard ferric oxide, most compatible |
+| **Type II** | Chrome/High Bias | 70µs | 70µs | Chromium dioxide, better high frequency |
+| **Type III** | Ferrochrome | 120µs | 70µs | Dual-layer (rare), Type I bias + Type II EQ |
+| **Type IV** | Metal | 70µs | 70µs | Metal particle, highest quality and headroom |
+
+**Usage:**
+```bash
+# Specify tape type for authentic deck simulation
+python3 decprec.py --tape-type "Type II" --folder ./tracks
+
+# Different tape lengths (per side)
+python3 decprec.py --duration 30 --folder ./tracks  # C60 (30min/side)
+python3 decprec.py --duration 45 --folder ./tracks  # C90 (45min/side) 
+python3 decprec.py --duration 60 --folder ./tracks  # C120 (60min/side)
+```
+
+The script automatically displays the proper C-type indicator (C60/C90/C120) and shows tape type information in the configuration section.
 
 ## 📋 Requirements
 
@@ -368,6 +439,90 @@ python decprec.py --counter-mode manual --counter-config deck_a.json
 | Key | Action |
 |-----|--------|
 | `Q` | Return to main menu |
+
+## 🔴 Capacity Warning System
+
+The script provides visual alerts when your track selection exceeds tape capacity:
+
+**Warning Indicators:**
+- **Bold Red Blinking Text** - Total recording time and tape length flash in red
+- **Automatic Detection** - Triggers when selected tracks exceed tape duration
+- **Persistent Display** - Warning remains visible until track selection is adjusted
+- **All Screen Coverage** - Warnings appear on main menu, preview, and configuration screens
+
+**Example Warning:**
+```
+Total Recording Time: 52:34  ← Bold red blinking when > tape capacity
+Tape Length: C90 (45 min per side)  ← Bold red blinking
+```
+
+The warning calculation includes track gaps and leader tape to give accurate capacity assessment.
+
+## 📊 Enhanced Configuration Display
+
+All screens now show comprehensive configuration information:
+
+**Always Visible Information:**
+- **Tape Counter Config:** Manual (Deck Model) / Auto (Physics) / Static (Rate)
+- **Tape Type:** Type I-IV with bias/EQ specifications and characteristics  
+- **Audio Settings:** Normalization method and target levels
+- **Timing:** Leader gaps, track gaps, and latency compensation
+- **Total Recording Time:** Always displayed (00:00 when no tracks selected)
+- **Tape Length:** C60/C90/C120 indicator with per-side duration
+- **Capacity Status:** Real-time warning when approaching/exceeding limits
+
+This ensures you always have complete visibility of your deck configuration regardless of which screen you're on.
+
+## ⚙️ Command-Line Arguments
+
+### Core Options
+```bash
+# Basic usage
+python3 decprec.py --folder ~/music/mixtape
+
+# Audio settings
+--normalization {peak,lufs}        # Normalization method (default: lufs)
+--target-lufs TARGET_LUFS          # Target LUFS level (default: -14.0)
+--audio-latency SECONDS            # VU meter sync compensation (try 0.1-0.5)
+
+# Tape settings
+--duration MINUTES                 # Tape length per side: 30(C60), 45(C90), 60(C120)
+--tape-type {Type I,Type II,Type III,Type IV}  # Cassette type (default: Type I)
+--leader-gap SECONDS              # Leader tape before first track (default: 10)
+--track-gap SECONDS               # Silence between tracks (default: 5)
+
+# Counter system  
+--counter-mode {manual,auto,static}    # Counter calculation mode (default: static)
+--counter-rate RATE                    # Static mode: increments per second
+--counter-config FILE                  # Manual mode: calibration data file
+--calibrate-counter                    # Run interactive calibration wizard
+
+# System settings
+--ffmpeg-path PATH                     # Custom FFmpeg binary location
+--deck-profile FILE                    # Load complete deck configuration
+```
+
+### Complete Examples
+
+**Basic mixtape recording:**
+```bash
+python3 decprec.py --folder ~/music/summer2024 --duration 45 --tape-type "Type II"
+```
+
+**Professional setup with LUFS and manual counter:**
+```bash
+python3 decprec.py --folder ~/studio/album --counter-mode manual --normalization lufs --target-lufs -16.0 --audio-latency 0.2
+```
+
+**Using deck profile with overrides:**
+```bash
+python3 decprec.py --deck-profile deck_profiles/sony_tcwe475.json --folder ~/music --tape-type "Type I"
+```
+
+**Calibrate new deck:**
+```bash
+python3 decprec.py --calibrate-counter --counter-config my_deck.json
+```
 
 ## 🎯 Workflow
 

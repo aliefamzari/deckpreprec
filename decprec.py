@@ -61,6 +61,43 @@ import math
 import numpy as np
 from datetime import datetime
 from pydub import AudioSegment
+
+# --- Deck Profile Preset Loader ---
+def load_deck_profile(profile_path, args):
+    """Load deck profile JSON and override args namespace."""
+    if not os.path.isfile(profile_path):
+        print(f"\nERROR: Deck profile '{profile_path}' not found.\n")
+        sys.exit(1)
+    try:
+        with open(profile_path, 'r') as f:
+            profile = json.load(f)
+    except Exception as e:
+        print(f"\nERROR: Failed to load deck profile: {e}\n")
+        sys.exit(1)
+    # Map profile keys to arg names
+    mapping = {
+        'counter_mode': 'counter_mode',
+        'counter_config': 'counter_config',
+        'counter_rate': 'counter_rate',
+        'leader_gap': 'leader_gap',
+        'normalization': 'normalization',
+        'target_lufs': 'target_lufs',
+        'tape_type': 'tape_type',
+        'deck_model': 'deck_model',
+        'folder': 'folder',
+        'duration': 'duration',
+        'track_gap': 'track_gap',
+    }
+    for k, v in profile.items():
+        if k in mapping:
+            setattr(args, mapping[k], v)
+    print(f"\n✓ Loaded deck profile: {profile_path}")
+    if 'deck_model' in profile:
+        print(f"  Deck: {profile['deck_model']}")
+    if 'tape_type' in profile:
+        print(f"  Tape: {profile['tape_type']}")
+    print()
+    return args
 try:
     import pyloudnorm as pyln
     PYLOUDNORM_AVAILABLE = True
@@ -71,7 +108,7 @@ except ImportError:
 # --- Argument parsing ---
 parser = argparse.ArgumentParser(description="Audio Player for Tape Recording")
 parser.add_argument("--track-gap", type=int, default=5, help="Gap between tracks in seconds (default: 5)")
-parser.add_argument("--duration", type=int, default=30, help="Maximum tape duration in minutes (default: 30)")
+parser.add_argument("--duration", type=int, default=30, help="Maximum tape duration in minutes per side (default: 30 - C60 cassette side)")
 parser.add_argument("--folder", type=str, default="./tracks", help="Folder with audio tracks")
 parser.add_argument("--counter-rate", type=float, default=1.0, help="Tape counter increments per second for static mode (default: 1.0)")
 parser.add_argument("--counter-mode", type=str, default="static", choices=["manual", "auto", "static"], help="Counter calculation mode: 'manual' (calibrated), 'auto' (physics), 'static' (constant rate) (default: static)")
@@ -81,8 +118,14 @@ parser.add_argument("--leader-gap", type=int, default=10, help="Leader gap befor
 parser.add_argument("--normalization", type=str, default="lufs", choices=["peak", "lufs"], help="Normalization method: 'peak' or 'lufs' (default: lufs)")
 parser.add_argument("--target-lufs", type=float, default=-14.0, help="Target LUFS level for LUFS normalization (default: -14.0)")
 parser.add_argument("--audio-latency", type=float, default=0.0, help="Audio latency compensation in seconds for VU meter sync (default: 0.0, try 0.1-0.5 if audio lags behind meters)")
+parser.add_argument("--tape-type", type=str, default="Type I", choices=["Type I", "Type II", "Type III", "Type IV"], help="Cassette tape type: Type I (Normal/Ferric), Type II (Chrome/High Bias), Type III (Ferrochrome), Type IV (Metal) (default: Type I)")
 parser.add_argument("--ffmpeg-path", type=str, default="/usr/bin/ffmpeg", help="Path to ffmpeg binary (default: /usr/bin/ffmpeg)")
+parser.add_argument("--deck-profile", type=str, default=None, help="Path to deck profile preset JSON (overrides most options)")
 args = parser.parse_args()
+
+# --- Deck Profile Preset Application ---
+if args.deck_profile:
+    args = load_deck_profile(args.deck_profile, args)
 
 TRACK_GAP_SECONDS = args.track_gap
 TOTAL_DURATION_MINUTES = args.duration
@@ -94,6 +137,7 @@ LEADER_GAP_SECONDS = args.leader_gap
 NORMALIZATION_METHOD = args.normalization
 TARGET_LUFS = args.target_lufs
 AUDIO_LATENCY = args.audio_latency
+TAPE_TYPE = args.tape_type
 FFMPEG_PATH = args.ffmpeg_path
 
 # Tape reel physics constants for realistic counter behavior
@@ -202,6 +246,44 @@ def load_calibration_config(config_path):
     except Exception as e:
         print(f"Error loading calibration file: {e}")
         return None
+
+def get_tape_type_info(tape_type):
+    """Get detailed information about cassette tape type"""
+    tape_info = {
+        "Type I": {
+            "name": "Normal (Ferric Oxide)",
+            "material": "Ferric Oxide",
+            "color": "Brown",
+            "sound": "Good bass, lacks high-frequency detail",
+            "bias": "Standard (120µs EQ)",
+            "notches": "Standard write-protect only"
+        },
+        "Type II": {
+            "name": "Chrome/High Bias", 
+            "material": "Chromium Dioxide (CrO₂)",
+            "color": "Dark brown/black",
+            "sound": "Crisp highs, better dynamics",
+            "bias": "High bias (70µs EQ)",
+            "notches": "Extra detection notches"
+        },
+        "Type III": {
+            "name": "Ferrochrome (Rare)",
+            "material": "Ferric + Chrome mix",
+            "color": "Varies",
+            "sound": "Type I bass + Type II highs",
+            "bias": "High bias (70µs EQ)", 
+            "notches": "Distinct pattern"
+        },
+        "Type IV": {
+            "name": "Metal (Pure Metal)",
+            "material": "Pure metal particles",
+            "color": "Solid black",
+            "sound": "Highest output, best clarity",
+            "bias": "Metal bias (70µs EQ)",
+            "notches": "Third center notch set"
+        }
+    }
+    return tape_info.get(tape_type, tape_info["Type I"])
 
 def calculate_tape_counter(elapsed_seconds):
     """
@@ -478,6 +560,91 @@ def format_duration(seconds):
     minutes = seconds // 60
     secs = seconds % 60
     return f"{minutes}:{secs:02d}"
+
+def draw_config_info(stdscr, y, x, compact=False, selected_tracks=None, show_warning=False):
+    """Draw current configuration information"""
+    mode_names = {
+        "manual": "Manual Calibrated",
+        "auto": "Auto Physics", 
+        "static": "Static Linear"
+    }
+    
+    if compact:
+        # Single line compact format for recording mode
+        config_text = f"Tape Counter Config: {mode_names.get(COUNTER_MODE, COUNTER_MODE)}"
+        if COUNTER_MODE == "static":
+            config_text += f" ({COUNTER_RATE:.1f})"
+        elif COUNTER_MODE == "manual" and CALIBRATION_DATA:
+            deck = CALIBRATION_DATA.get('deck_model', 'Unknown')
+            tape = CALIBRATION_DATA.get('tape_type', TAPE_TYPE)
+            if deck != 'Unknown':
+                config_text += f" ({deck}/{tape})"
+        config_text += f" | {NORMALIZATION_METHOD.upper()}"
+        if NORMALIZATION_METHOD == "lufs":
+            config_text += f" {TARGET_LUFS:+.1f}dB"
+        config_text += f" | Gap:{TRACK_GAP_SECONDS}s | Lead:{LEADER_GAP_SECONDS}s"
+        safe_addstr(stdscr, y, x, config_text, curses.color_pair(COLOR_CYAN))
+        return 1  # Height used
+    else:
+        # Multi-line detailed format for main menu and preview
+        safe_addstr(stdscr, y, x, "CONFIGURATION:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+        
+        counter_info = f"Counter: {mode_names.get(COUNTER_MODE, COUNTER_MODE)}"
+        if COUNTER_MODE == "static":
+            counter_info += f" ({COUNTER_RATE} counts/sec)"
+        elif COUNTER_MODE == "manual" and CALIBRATION_DATA:
+            deck = CALIBRATION_DATA.get('deck_model', 'Unknown')
+            counter_info += f" ({deck})"
+        safe_addstr(stdscr, y + 1, x, counter_info, curses.color_pair(COLOR_CYAN))
+        
+        # Tape type information
+        tape_info = get_tape_type_info(TAPE_TYPE)
+        tape_line = f"Tape: {TAPE_TYPE} - {tape_info['name']} ({tape_info['bias']})"
+        safe_addstr(stdscr, y + 2, x, tape_line, curses.color_pair(COLOR_CYAN))
+        
+        norm_info = f"Audio: {NORMALIZATION_METHOD.upper()} normalization"
+        if NORMALIZATION_METHOD == "lufs":
+            norm_info += f" (target: {TARGET_LUFS:+.1f} LUFS)"
+        safe_addstr(stdscr, y + 3, x, norm_info, curses.color_pair(COLOR_CYAN))
+        
+        timing_info = f"Timing: {LEADER_GAP_SECONDS}s leader + {TRACK_GAP_SECONDS}s gaps"
+        safe_addstr(stdscr, y + 4, x, timing_info, curses.color_pair(COLOR_CYAN))
+        
+        # Total recording time and tape capacity (always display)
+        if selected_tracks and len(selected_tracks) > 0:
+            total_duration = sum(track.get('duration', 0) for track in selected_tracks)
+            total_with_gaps = total_duration + (TRACK_GAP_SECONDS * (len(selected_tracks) - 1)) + LEADER_GAP_SECONDS
+            at_capacity = total_with_gaps >= TOTAL_DURATION_MINUTES * 60
+        else:
+            total_with_gaps = 0
+            at_capacity = False
+        
+        # Colors and attributes for warning
+        time_color = COLOR_RED if show_warning else COLOR_CYAN
+        time_attr = curses.A_BOLD | curses.A_BLINK if show_warning else 0
+        
+        safe_addstr(stdscr, y + 5, x, "Total Recording Time: ", curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, y + 5, x + 22, format_duration(total_with_gaps), curses.color_pair(time_color) | time_attr)
+        
+        # Tape length with C-type indicator
+        tape_type_indicator = ""
+        if TOTAL_DURATION_MINUTES == 30:
+            tape_type_indicator = " (C60)"
+        elif TOTAL_DURATION_MINUTES == 45:
+            tape_type_indicator = " (C90)"
+        elif TOTAL_DURATION_MINUTES == 60:
+            tape_type_indicator = " (C120)"
+        
+        safe_addstr(stdscr, y + 6, x, "Tape Length: ", curses.color_pair(COLOR_CYAN))
+        tape_length_text = f"{TOTAL_DURATION_MINUTES}min{tape_type_indicator}"
+        safe_addstr(stdscr, y + 6, x + 13, tape_length_text, curses.color_pair(time_color) | time_attr)
+        
+        if AUDIO_LATENCY > 0:
+            latency_info = f"Audio latency compensation: {AUDIO_LATENCY}s"
+            safe_addstr(stdscr, y + 7, x, latency_info, curses.color_pair(COLOR_YELLOW))
+            return 8  # Height used
+        
+        return 7  # Height used (always includes timing info now)
 
 
 def draw_vu_meter(stdscr, y, x, level, max_width=40, label=""):
@@ -856,10 +1023,68 @@ def write_deck_tracklist(normalized_tracks, track_gap, folder, counter_rate, lea
     
     with open(output_path, "w") as f:
         f.write("Tape Deck Tracklist Reference\n")
-        f.write("="*40 + "\n")
-        f.write(f"Session: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"Counter Rate: {counter_rate} counts/second\n")
+        f.write("="*60 + "\n")
+        f.write(f"Session: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        
+        # Tape Information
+        f.write("TAPE INFORMATION:\n")
+        f.write("-" * 17 + "\n")
+        tape_info = get_tape_type_info(TAPE_TYPE)
+        f.write(f"Tape Type: {TAPE_TYPE} - {tape_info['name']}\n")
+        f.write(f"Material: {tape_info['material']}\n")
+        f.write(f"Bias Setting: {tape_info['bias']}\n")
+        f.write(f"Sound Character: {tape_info['sound']}\n")
+        f.write(f"Physical Notes: {tape_info['notches']}\n\n")
+        
+        # Tape Counter Configuration
+        f.write("TAPE COUNTER CONFIGURATION:\n")
+        f.write("-" * 30 + "\n")
+        mode_names = {
+            "manual": "Manual Calibrated",
+            "auto": "Auto Physics", 
+            "static": "Static Linear"
+        }
+        f.write(f"Counter Mode: {mode_names.get(COUNTER_MODE, COUNTER_MODE)}\n")
+        
+        if COUNTER_MODE == "static":
+            f.write(f"Counter Rate: {COUNTER_RATE} counts/second (constant)\n")
+        elif COUNTER_MODE == "manual" and CALIBRATION_DATA:
+            f.write(f"Calibration Source: {COUNTER_CONFIG_PATH}\n")
+            deck = CALIBRATION_DATA.get('deck_model', 'Unknown')
+            tape = CALIBRATION_DATA.get('tape_type', 'Unknown')
+            cal_date = CALIBRATION_DATA.get('calibration_date', 'Unknown')
+            f.write(f"Deck Model: {deck}\n")
+            f.write(f"Tape Type: {tape}\n")
+            f.write(f"Calibration Date: {cal_date}\n")
+            checkpoints = CALIBRATION_DATA.get('checkpoints', [])
+            if checkpoints:
+                f.write(f"Calibration Points: {len(checkpoints)} measurements\n")
+        elif COUNTER_MODE == "auto":
+            f.write(f"Physics Simulation: Reel-based calculation\n")
+            f.write(f"Base Rate: {COUNTER_RATE} counts/second (at tape midpoint)\n")
+        
         f.write(f"Leader Gap: {leader_gap}s (Counter: 0000 - {calculate_tape_counter(leader_gap):04d})\n\n")
+        
+        # Audio Configuration
+        f.write("AUDIO CONFIGURATION:\n")
+        f.write("-" * 20 + "\n")
+        f.write(f"Normalization: {NORMALIZATION_METHOD.upper()}")
+        if NORMALIZATION_METHOD == "lufs":
+            f.write(f" (target: {TARGET_LUFS:+.1f} LUFS)\n")
+        else:
+            f.write(" (peak normalization)\n")
+        f.write(f"Track Gap: {track_gap}s between tracks\n")
+        f.write(f"Tape Duration: {TOTAL_DURATION_MINUTES} minutes per side\n")
+        if AUDIO_LATENCY > 0:
+            f.write(f"Audio Latency Compensation: {AUDIO_LATENCY}s\n")
+        f.write(f"Total Tracks: {len(normalized_tracks)}\n")
+        total_duration = sum(int(round(t['audio'].duration_seconds)) for t in normalized_tracks)
+        total_with_gaps = total_duration + (track_gap * (len(normalized_tracks) - 1)) + leader_gap
+        f.write(f"Total Recording Time: {format_duration(total_with_gaps)} (including gaps)\n\n")
+        
+        # Track List
+        f.write("TRACK LIST:\n")
+        f.write("=" * 60 + "\n")
         for line in lines:
             f.write(line + "\n")
     
@@ -932,8 +1157,28 @@ def show_normalization_summary(stdscr, normalized_tracks):
         safe_addstr(stdscr, 1, 15, "NORMALIZATION COMPLETE - PREVIEW MODE", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
         safe_addstr(stdscr, 2, 0, "═" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
         
+        # Configuration info - create track list for timing calculation
+        track_list = [{'duration': track['audio'].duration_seconds} for track in normalized_tracks]
+        total_duration = sum(track['duration'] for track in track_list)
+        total_with_gaps = total_duration + (TRACK_GAP_SECONDS * (len(track_list) - 1)) + LEADER_GAP_SECONDS if track_list else 0
+        at_capacity = total_with_gaps >= TOTAL_DURATION_MINUTES * 60
+        show_warning = at_capacity  # No time-based warning in preview mode
+        
+        config_height = draw_config_info(stdscr, 3, 2, selected_tracks=track_list, show_warning=show_warning)
+        safe_addstr(stdscr, 3 + config_height, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+        
+        # Playback Status Section
+        playback_section_y = 3 + config_height + 2
+        safe_addstr(stdscr, playback_section_y, 0, "PLAYBACK STATUS:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+        
         # VU Meters at top (always visible)
-        meter_y = 4
+        meter_y = playback_section_y + 2
+        # Always clear the status lines first
+        stdscr.move(meter_y, 0)
+        stdscr.clrtoeol()
+        stdscr.move(meter_y + 1, 0)
+        stdscr.clrtoeol()
+        
         if playing:
             # Calculate current playback position with latency compensation
             current_pos = seek_position
@@ -951,8 +1196,6 @@ def show_normalization_summary(stdscr, normalized_tracks):
             safe_addstr(stdscr, meter_y + 1, 0, position_text, curses.color_pair(COLOR_YELLOW))
         else:
             level_l, level_r = 0.0, 0.0
-            stdscr.move(meter_y, 0)
-            stdscr.clrtoeol()
             safe_addstr(stdscr, meter_y, 0, "Ready to preview tracks", curses.color_pair(COLOR_WHITE))
         
         safe_addstr(stdscr, meter_y + 2, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
@@ -1005,10 +1248,10 @@ def show_normalization_summary(stdscr, normalized_tracks):
         safe_addstr(stdscr, footer_y, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
         safe_addstr(stdscr, footer_y + 1, 0, "CONTROLS:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
         safe_addstr(stdscr, footer_y + 2, 0, "  ↑/↓: Navigate  ", curses.color_pair(COLOR_WHITE))
-        safe_addstr(stdscr, footer_y + 2, 18, "P", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 2, 19, ": Play  ", curses.color_pair(COLOR_WHITE))
-        safe_addstr(stdscr, footer_y + 2, 27, "X", curses.color_pair(COLOR_RED) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 2, 28, ": Stop", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 2, 35, "P", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+        safe_addstr(stdscr, footer_y + 2, 36, ": Play  ", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 2, 43, "X", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+        safe_addstr(stdscr, footer_y + 2, 44, ": Stop", curses.color_pair(COLOR_WHITE))
         
         safe_addstr(stdscr, footer_y + 3, 0, "  ", curses.color_pair(COLOR_WHITE))
         safe_addstr(stdscr, footer_y + 3, 2, "←", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
@@ -1025,8 +1268,8 @@ def show_normalization_summary(stdscr, normalized_tracks):
         safe_addstr(stdscr, footer_y + 5, 0, "  ", curses.color_pair(COLOR_WHITE))
         safe_addstr(stdscr, footer_y + 5, 2, "ENTER", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
         safe_addstr(stdscr, footer_y + 5, 7, ": Start Recording  ", curses.color_pair(COLOR_WHITE))
-        safe_addstr(stdscr, footer_y + 5, 26, "Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 5, 27, ": Cancel", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 5, 17, "Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+        safe_addstr(stdscr, footer_y + 5, 18, ": Cancel", curses.color_pair(COLOR_WHITE))
         
         stdscr.refresh()
         
@@ -1322,6 +1565,9 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             safe_addstr(stdscr, title_y + 1, 28, "LEADER GAP - STAND BY", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
             safe_addstr(stdscr, title_y + 2, 0, "╚" + "═" * 78 + "╝", curses.color_pair(COLOR_CYAN))
             
+            # Compact configuration info
+            draw_config_info(stdscr, title_y + 3, 2, compact=True)
+            
             # Draw tape counter below title
             counter_y = title_y + 4
             
@@ -1388,7 +1634,7 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             counter_changed = current_counter != last_counter
             progress_changed = current_progress != last_progress
             
-            # Only redraw cassette and static elements on first draw or when values change
+            # Only redraw on first draw or when values change
             if first_draw or counter_changed or progress_changed:
                 if first_draw:
                     stdscr.erase()
@@ -1416,6 +1662,9 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
                 safe_addstr(stdscr, title_y, 0, "╔" + "═" * 78 + "╗", curses.color_pair(COLOR_CYAN))
                 safe_addstr(stdscr, title_y + 1, 30, "DECK RECORDING MODE", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
                 safe_addstr(stdscr, title_y + 2, 0, "╚" + "═" * 78 + "╝", curses.color_pair(COLOR_CYAN))
+                
+                # Compact configuration info
+                draw_config_info(stdscr, title_y + 3, 2, compact=True)
                 
                 # Draw tape counter below title
                 counter_y = title_y + 4
@@ -1498,12 +1747,12 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
                 footer_y = tracks_y + 1 + (len(normalized_tracks) * 3) + 1
                 max_y, max_x = stdscr.getmaxyx()
                 if footer_y < max_y - 5:
-                    safe_addstr(stdscr, footer_y, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
+                    safe_addstr(stdscr, footer_y, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
                     safe_addstr(stdscr, footer_y + 1, 0, f"TOTAL RECORDING TIME: {format_duration(elapsed)}/{format_duration(total_time)}", curses.color_pair(COLOR_YELLOW))
                     # Total progress bar
                     bar_len = 60
                     total_progress = min(int(bar_len * (elapsed / max(1, total_time))), bar_len)
-                    safe_addstr(stdscr, footer_y + 2, 0, "[", curses.color_pair(COLOR_CYAN))
+                    safe_addstr(stdscr, footer_y + 2,  0, "[", curses.color_pair(COLOR_CYAN))
                     safe_addstr(stdscr, footer_y + 2, 1, "█" * total_progress, curses.color_pair(COLOR_YELLOW))
                     safe_addstr(stdscr, footer_y + 2, 1 + total_progress, "░" * (bar_len - total_progress), curses.color_pair(COLOR_BLUE))
                     safe_addstr(stdscr, footer_y + 2, 1 + bar_len, "]", curses.color_pair(COLOR_CYAN))
@@ -1581,6 +1830,7 @@ def main_menu(folder):
     selected_tracks = []
     total_selected_duration = 0.0
     current_index = 0
+    playing = False  # Ensure playback state is always defined
     paused = False
 
     def draw_menu(stdscr):
@@ -1594,6 +1844,39 @@ def main_menu(folder):
         play_start_time = None  # When playback started
         preview_audio_levels = None  # Pre-analyzed audio levels for preview
         preview_audio_segment = None  # AudioSegment for current preview
+        playing = False  # Playback state
+        
+        def stop_preview():
+            nonlocal previewing_index, playing, seek_position, play_start_time
+            global ffplay_proc
+            if ffplay_proc is not None and ffplay_proc.poll() is None:
+                ffplay_proc.terminate()
+                ffplay_proc = None
+            playing = False
+            previewing_index = -1
+            play_start_time = None
+            seek_position = 0.0
+        
+        def start_preview(idx, start_pos=0.0):
+            nonlocal previewing_index, playing, seek_position, play_start_time, preview_audio_levels, preview_audio_segment
+            stop_preview()
+            previewing_index = idx
+            seek_position = max(0.0, start_pos)
+            track_path = os.path.join(folder, tracks[idx]['name'])
+            
+            # Start ffplay with seek position
+            play_audio(track_path, seek_position)
+            playing = True
+            play_start_time = time.time()
+            
+            # Load audio levels for VU meter display
+            try:
+                audio_segment = AudioSegment.from_file(track_path)
+                preview_audio_levels = analyze_audio_levels(audio_segment)
+                preview_audio_segment = audio_segment
+            except Exception:
+                preview_audio_levels = None
+                preview_audio_segment = None
         
         needs_full_redraw = True
         last_scroll_offset = -1  # Track scroll position changes
@@ -1617,13 +1900,36 @@ def main_menu(folder):
             safe_addstr(stdscr, header_y + 1, 20, "TAPE DECK PREP MENU", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
             safe_addstr(stdscr, header_y + 2, 0, "═" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
             
+            # Calculate capacity warning before displaying config
+            at_capacity = total_selected_duration >= TOTAL_DURATION_MINUTES * 60
+            show_warning = at_capacity or time.time() < capacity_warning_until
+            
+            # Configuration info
+            config_height = draw_config_info(stdscr, header_y + 3, 2, selected_tracks=selected_tracks, show_warning=show_warning)
+            safe_addstr(stdscr, header_y + 3 + config_height, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
+            
+            # Playback Status Section
+            playback_section_y = header_y + 3 + config_height + 2
+            safe_addstr(stdscr, playback_section_y, 0, "PLAYBACK STATUS:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+            
             # VU Meters at top (always visible)
-            meter_y = header_y + 4
+            meter_y = playback_section_y + 2
+            # Always clear the playing status line first
+            stdscr.move(meter_y, 0)
+            stdscr.clrtoeol()
+            
+            # Clear the second status line as well
+            stdscr.move(meter_y + 1, 0)
+            stdscr.clrtoeol()
+            
             if previewing_index >= 0 and play_start_time is not None:
                 current_pos = seek_position + (time.time() - play_start_time) - AUDIO_LATENCY
                 track_duration = tracks[previewing_index]['duration']
-                position_text = f"Playing: {format_duration(current_pos)} / {format_duration(track_duration)}"
-                safe_addstr(stdscr, meter_y, 0, position_text, curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                
+                status_text = f"NOW PLAYING: {tracks[previewing_index]['name']}"
+                position_text = f"Position: {format_duration(current_pos)} / {format_duration(track_duration)}"
+                safe_addstr(stdscr, meter_y, 0, status_text, curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                safe_addstr(stdscr, meter_y + 1, 0, position_text, curses.color_pair(COLOR_YELLOW))
                 
                 # Get audio levels if available
                 if preview_audio_levels is not None:
@@ -1633,19 +1939,17 @@ def main_menu(folder):
                     level_l, level_r = 0.0, 0.0
             else:
                 level_l, level_r = 0.0, 0.0
-                stdscr.move(meter_y, 0)
-                stdscr.clrtoeol()
-                safe_addstr(stdscr, meter_y, 0, "No preview playing", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, meter_y, 0, "Ready to preview tracks", curses.color_pair(COLOR_WHITE))
             
-            safe_addstr(stdscr, meter_y + 1, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
-            draw_vu_meter(stdscr, meter_y + 2, 2, level_l, max_width=50, label="L")
+            safe_addstr(stdscr, meter_y + 2, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
+            draw_vu_meter(stdscr, meter_y + 3, 2, level_l, max_width=50, label="L")
             # dB scale between meters
             db_scale = "    -60  -40  -30  -20  -12   -6   -3    0 dB"
-            safe_addstr(stdscr, meter_y + 3, 2, db_scale, curses.color_pair(COLOR_YELLOW))
-            draw_vu_meter(stdscr, meter_y + 4, 2, level_r, max_width=50, label="R")
-            safe_addstr(stdscr, meter_y + 5, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, meter_y + 4, 2, db_scale, curses.color_pair(COLOR_YELLOW))
+            draw_vu_meter(stdscr, meter_y + 5, 2, level_r, max_width=50, label="R")
+            safe_addstr(stdscr, meter_y + 6, 0, "─" * 78, curses.color_pair(COLOR_CYAN))
             
-            tracklist_y = meter_y + 7
+            tracklist_y = meter_y + 8
             safe_addstr(stdscr, tracklist_y, 0, f"TRACKS IN FOLDER ({folder}):", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
             
             # Check if preview is still playing
@@ -1760,24 +2064,9 @@ def main_menu(folder):
                 
                 safe_addstr(stdscr, footer_y, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
                 
-                # Build info line with selective highlighting
-                safe_addstr(stdscr, footer_y + 1, 0, "Total Recording Time: ", curses.color_pair(COLOR_CYAN))
-                time_color = COLOR_RED if show_warning else COLOR_CYAN
-                time_attr = curses.A_BOLD | curses.A_BLINK if show_warning else 0
-                safe_addstr(stdscr, footer_y + 1, 22, total_duration_str, curses.color_pair(time_color) | time_attr)
-                
-                safe_addstr(stdscr, footer_y + 1, 22 + len(total_duration_str), 
-                           f" | Tape Leader Gap: {LEADER_GAP_SECONDS}s | Track Gap: {TRACK_GAP_SECONDS}s | Tape Length: ", 
-                           curses.color_pair(COLOR_CYAN))
-                
-                length_x = 22 + len(total_duration_str) + len(f" | Tape Leader Gap: {LEADER_GAP_SECONDS}s | Track Gap: {TRACK_GAP_SECONDS}s | Tape Length: ")
-                safe_addstr(stdscr, footer_y + 1, length_x, tape_length_str, 
-                           curses.color_pair(time_color) | time_attr)
-                
                 # Controls
                 controls_y = footer_y + 2
-                safe_addstr(stdscr, controls_y, 0, "─" * min(70, max_x - 2), curses.color_pair(COLOR_CYAN))
-                safe_addstr(stdscr, controls_y + 1, 0, "CONTROLS:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y, 0, "CONTROLS:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
                 safe_addstr(stdscr, controls_y + 2, 0, "  ↑/↓:Nav  Space:Select  C:Clear  ", curses.color_pair(COLOR_WHITE))
                 safe_addstr(stdscr, controls_y + 2, 35, "P", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
                 safe_addstr(stdscr, controls_y + 2, 36, ":Play  ", curses.color_pair(COLOR_WHITE))
@@ -1840,46 +2129,19 @@ def main_menu(folder):
                         total_selected_duration = 0
                         needs_full_redraw = True
                 elif key in (ord('p'), ord('P')):
-                    if previewing_index == current_index and ffplay_proc is not None and ffplay_proc.poll() is None:
-                        # Pause current playback (save position)
-                        if play_start_time is not None:
-                            seek_position += time.time() - play_start_time
-                        ffplay_proc.terminate()
-                        ffplay_proc = None
-                        previewing_index = -1
-                        play_start_time = None
+                    if previewing_index == current_index and playing:
+                        # Pause current playback if pressing P on the same track
+                        stop_preview()
                     else:
-                        # Stop any currently playing track from different position
-                        if ffplay_proc is not None and ffplay_proc.poll() is None:
-                            ffplay_proc.terminate()
-                            ffplay_proc = None
-                        # Reset seek position and start playback from beginning when switching tracks
-                        if current_index != previewing_index:
-                            seek_position = 0.0
-                            # Load and analyze audio for VU meters
-                            track_path = os.path.join(folder, tracks[current_index]['name'])
-                            try:
-                                preview_audio_segment = AudioSegment.from_file(track_path)
-                                preview_audio_levels = analyze_audio_levels(preview_audio_segment, chunk_duration_ms=50)
-                            except:
-                                preview_audio_segment = None
-                                preview_audio_levels = None
-                        # Start playback
-                        track_path = os.path.join(folder, tracks[current_index]['name'])
-                        play_audio(track_path, seek_position)
-                        previewing_index = current_index
-                        play_start_time = time.time()
-                        paused = False
+                        # Stop any currently playing track and start the highlighted one
+                        if playing:
+                            stop_preview()
+                        # Reset seek position to 0 since we want to start from beginning
+                        seek_position = 0.0
+                        start_preview(current_index, seek_position)
                 elif key in (ord('x'), ord('X')):
-                    if ffplay_proc is not None and ffplay_proc.poll() is None:
-                        ffplay_proc.terminate()
-                        ffplay_proc = None
-                    previewing_index = -1
+                    stop_preview()
                     seek_position = 0.0
-                    play_start_time = None
-                    paused = False
-                    preview_audio_levels = None
-                    preview_audio_segment = None
                 elif key in (curses.KEY_LEFT, ord('h')):
                     # Rewind 10 seconds in current track
                     if previewing_index >= 0 and ffplay_proc is not None and ffplay_proc.poll() is None:
