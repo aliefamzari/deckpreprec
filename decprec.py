@@ -180,32 +180,37 @@ def get_filename_input(stdscr, prompt="Enter filename:", default_name=""):
     cursor_pos = 0
     
     while True:
-        # Clear the input area first
-        clear_text = " " * max_filename_length
-        safe_addstr(stdscr, input_y, input_start_x + 1, clear_text, curses.color_pair(COLOR_WHITE))
-        
+        # Force clear the entire input line (prompt, box, and input)
+        stdscr.move(input_y, 0)
+        stdscr.clrtoeol()
+        # Redraw prompt and box
+        safe_addstr(stdscr, input_y, input_x, "Filename: ", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+        input_box = "[" + " " * max_filename_length + "]"
+        safe_addstr(stdscr, input_y, input_start_x, input_box, curses.color_pair(COLOR_WHITE))
+
         # Display current filename in input box
         display_text = filename[:max_filename_length]
         if display_text:
             safe_addstr(stdscr, input_y, input_start_x + 1, display_text, curses.color_pair(COLOR_YELLOW))
-        
+
         # Position cursor
         cursor_x = min(input_start_x + 1 + len(display_text), input_start_x + max_filename_length)
         stdscr.move(input_y, cursor_x)
         stdscr.refresh()
-        
+
         key = stdscr.getch()
-        
+
+        # Handle all common backspace key codes
         if key == 10 or key == 13:  # Enter
             break
         elif key == 27 or key in (ord('q'), ord('Q')):  # ESC or Q
             curses.curs_set(0)
             stdscr.nodelay(True)
             return None
-        elif key == curses.KEY_BACKSPACE or key == 8 or key == 127:
+        elif key in (curses.KEY_BACKSPACE, 8, 127, 263):
             if filename:
                 filename = filename[:-1]
-        elif key >= 32 and key <= 126 and len(filename) < max_filename_length:
+        elif 32 <= key <= 126 and len(filename) < max_filename_length:
             # Valid printable character
             char = chr(key)
             # Only allow alphanumeric, underscore, hyphen, space
@@ -288,6 +293,241 @@ def load_deck_profile(profile_path, args):
         print(f"  Tape: {profile['tape_type']}")
     print()
     return args
+
+def load_profile_runtime(profile_path):
+    """Load deck profile at runtime and update global variables."""
+    global COUNTER_MODE, COUNTER_RATE, COUNTER_CONFIG_PATH, LEADER_GAP_SECONDS
+    global NORMALIZATION_METHOD, TARGET_LUFS, TAPE_TYPE, TOTAL_DURATION_MINUTES
+    global TRACK_GAP_SECONDS, TARGET_FOLDER, AUDIO_LATENCY, CALIBRATION_DATA
+    
+    if not os.path.isfile(profile_path):
+        return False, f"Profile file '{profile_path}' not found."
+    
+    try:
+        with open(profile_path, 'r') as f:
+            profile = json.load(f)
+    except Exception as e:
+        return False, f"Failed to load profile: {e}"
+    
+    # Update global variables from profile
+    if 'counter_mode' in profile:
+        COUNTER_MODE = profile['counter_mode']
+    if 'counter_rate' in profile:
+        COUNTER_RATE = profile['counter_rate']
+    if 'counter_config' in profile:
+        COUNTER_CONFIG_PATH = profile['counter_config']
+    if 'leader_gap' in profile:
+        LEADER_GAP_SECONDS = profile['leader_gap']
+    if 'normalization' in profile:
+        NORMALIZATION_METHOD = profile['normalization']
+    if 'target_lufs' in profile:
+        TARGET_LUFS = profile['target_lufs']
+    if 'tape_type' in profile:
+        TAPE_TYPE = profile['tape_type']
+    if 'duration' in profile:
+        TOTAL_DURATION_MINUTES = profile['duration']
+    if 'track_gap' in profile:
+        TRACK_GAP_SECONDS = profile['track_gap']
+    if 'folder' in profile:
+        TARGET_FOLDER = profile['folder']
+    if 'audio_latency' in profile:
+        AUDIO_LATENCY = profile['audio_latency']
+    
+    # Reload calibration data if counter mode is manual
+    if COUNTER_MODE == "manual":
+        config_path = os.path.join(TARGET_FOLDER, COUNTER_CONFIG_PATH)
+        CALIBRATION_DATA = load_calibration_config(config_path)
+    
+    profile_name = profile.get('profile_name', os.path.basename(profile_path))
+    return True, f"Loaded profile: {profile_name}"
+
+def get_profile_files(folder="profiles"):
+    """Get list of available profile files"""
+    try:
+        if not os.path.isdir(folder):
+            return []
+        files = []
+        for f in os.listdir(folder):
+            if f.endswith('.json'):
+                full_path = os.path.join(folder, f)
+                try:
+                    # Verify it's a profile by checking for profile-specific keys
+                    with open(full_path, 'r') as file:
+                        data = json.load(file)
+                        if 'created_date' in data and ('counter_mode' in data or 'normalization' in data):
+                            files.append(full_path)
+                except:
+                    continue
+        return sorted(files)
+    except:
+        return []
+
+def create_deck_profile_wizard(stdscr, current_settings):
+    """Interactive wizard to create a deck profile from current settings or custom values."""
+    stdscr.clear()
+    max_y, max_x = stdscr.getmaxyx()
+    
+    # Header
+    safe_addstr(stdscr, 2, 0, "═" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
+    safe_addstr(stdscr, 3, 2, "CREATE DECK PROFILE", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+    safe_addstr(stdscr, 4, 0, "═" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
+    
+    # Enable cursor and turn off nodelay
+    curses.curs_set(1)
+    stdscr.nodelay(False)
+    
+    profile_data = {}
+    
+    # Step 1: Profile Name
+    safe_addstr(stdscr, 6, 2, "Profile Name: ", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+    safe_addstr(stdscr, 7, 2, "(This will be used as the filename)", curses.color_pair(COLOR_YELLOW))
+    
+    profile_name = ""
+    input_y = 8
+    input_x = 2
+    max_name_length = 40
+    
+    safe_addstr(stdscr, input_y, input_x, "Name: ", curses.color_pair(COLOR_WHITE))
+    input_start_x = input_x + 6
+    
+    input_box = "[" + "" * max_name_length + "]"
+    safe_addstr(stdscr, input_y, input_start_x, input_box, curses.color_pair(COLOR_WHITE))
+    
+    while True:
+        # Clear and display current name
+        clear_text = "" * max_name_length
+        safe_addstr(stdscr, input_y, input_start_x + 1, clear_text, curses.color_pair(COLOR_WHITE))
+        
+        if profile_name:
+            display_text = profile_name[:max_name_length]
+            safe_addstr(stdscr, input_y, input_start_x + 1, display_text, curses.color_pair(COLOR_YELLOW))
+        
+        cursor_x = min(input_start_x + 1 + len(profile_name), input_start_x + max_name_length)
+        stdscr.move(input_y, cursor_x)
+        stdscr.refresh()
+        
+        key = stdscr.getch()
+        
+        if key == 10 or key == 13:  # Enter
+            if profile_name.strip():
+                break
+        elif key == 27 or key in (ord('q'), ord('Q')):  # ESC or Q
+            curses.curs_set(0)
+            stdscr.nodelay(True)
+            return False
+        elif key == curses.KEY_BACKSPACE or key == 8 or key == 127:
+            if profile_name:
+                profile_name = profile_name[:-1]
+        elif key >= 32 and key <= 126 and len(profile_name) < max_name_length:
+            char = chr(key)
+            if char.isalnum() or char in "_- ":
+                profile_name += char
+    
+    profile_data['profile_name'] = profile_name.strip()
+    
+    # Step 2: Use current settings?
+    stdscr.clear()
+    safe_addstr(stdscr, 2, 0, "═" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
+    safe_addstr(stdscr, 3, 2, "PROFILE CONFIGURATION", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+    safe_addstr(stdscr, 4, 0, "═" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
+    
+    safe_addstr(stdscr, 6, 2, f"Profile: {profile_name}", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+    safe_addstr(stdscr, 8, 2, "Use current application settings as base?", curses.color_pair(COLOR_WHITE))
+    safe_addstr(stdscr, 9, 2, "Y: Yes (quick save)   N: No (customize settings)", curses.color_pair(COLOR_CYAN))
+    
+    stdscr.refresh()
+    
+    while True:
+        key = stdscr.getch()
+        if key in (ord('y'), ord('Y')):
+            # Use current settings
+            profile_data.update({
+                'created_date': datetime.now().isoformat(),
+                'description': f'Profile created from current settings',
+                'counter_mode': current_settings['counter_mode'],
+                'counter_rate': current_settings['counter_rate'],
+                'counter_config': current_settings['counter_config'],
+                'normalization': current_settings['normalization'],
+                'target_lufs': current_settings['target_lufs'],
+                'leader_gap': current_settings['leader_gap'],
+                'track_gap': current_settings['track_gap'],
+                'tape_type': current_settings['tape_type'],
+                'duration': current_settings['duration'],
+                'folder': current_settings['folder']
+            })
+            break
+        elif key in (ord('n'), ord('N')):
+            # Custom configuration - for now, just use current settings but allow future expansion
+            safe_addstr(stdscr, 11, 2, "Custom configuration wizard not yet implemented.", curses.color_pair(COLOR_YELLOW))
+            safe_addstr(stdscr, 12, 2, "Using current settings for now. Press any key to continue...", curses.color_pair(COLOR_WHITE))
+            stdscr.refresh()
+            stdscr.getch()
+            
+            profile_data.update({
+                'created_date': datetime.now().isoformat(),
+                'description': f'Profile created from current settings (custom wizard TBD)',
+                'counter_mode': current_settings['counter_mode'],
+                'counter_rate': current_settings['counter_rate'],
+                'counter_config': current_settings['counter_config'],
+                'normalization': current_settings['normalization'],
+                'target_lufs': current_settings['target_lufs'],
+                'leader_gap': current_settings['leader_gap'],
+                'track_gap': current_settings['track_gap'],
+                'tape_type': current_settings['tape_type'],
+                'duration': current_settings['duration'],
+                'folder': current_settings['folder']
+            })
+            break
+        elif key == 27 or key in (ord('q'), ord('Q')):  # ESC or Q
+            curses.curs_set(0)
+            stdscr.nodelay(True)
+            return False
+    
+    # Step 3: Save Profile
+    # Clean profile name for filename
+    clean_name = profile_name.replace(' ', '_').lower()
+    clean_name = ''.join(c for c in clean_name if c.isalnum() or c in '_-')
+    
+    # Create profiles directory if it doesn't exist
+    profiles_dir = "profiles"
+    os.makedirs(profiles_dir, exist_ok=True)
+    
+    profile_filename = f"{profiles_dir}/{clean_name}.json"
+    
+    try:
+        with open(profile_filename, 'w') as f:
+            json.dump(profile_data, f, indent=2)
+        
+        # Success message
+        stdscr.clear()
+        safe_addstr(stdscr, 2, 0, "═" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, 3, 2, "PROFILE CREATED SUCCESSFULLY", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+        safe_addstr(stdscr, 4, 0, "═" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
+        
+        safe_addstr(stdscr, 6, 2, f"Profile saved as: {profile_filename}", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, 8, 2, "To use this profile:", curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, 9, 2, f"python3 decprec.py --deck-profile {profile_filename}", curses.color_pair(COLOR_YELLOW))
+        
+        safe_addstr(stdscr, 12, 2, "Press any key to return to main menu...", curses.color_pair(COLOR_GREEN))
+        stdscr.refresh()
+        stdscr.getch()
+        
+        curses.curs_set(0)
+        stdscr.nodelay(True)
+        return True
+        
+    except Exception as e:
+        # Error message
+        stdscr.clear()
+        safe_addstr(stdscr, max_y//2-2, 2, f"Error saving profile: {str(e)}", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+        safe_addstr(stdscr, max_y//2, 2, "Press any key to return to main menu...", curses.color_pair(COLOR_WHITE))
+        stdscr.refresh()
+        stdscr.getch()
+        
+        curses.curs_set(0)
+        stdscr.nodelay(True)
+        return False
+
 try:
     import pyloudnorm as pyln
     PYLOUDNORM_AVAILABLE = True
@@ -2450,6 +2690,12 @@ def main_menu(folder):
                 safe_addstr(stdscr, controls_y + 6, 7, ":Record   ", curses.color_pair(COLOR_WHITE))
                 safe_addstr(stdscr, controls_y + 6, 18, "Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
                 safe_addstr(stdscr, controls_y + 6, 19, ":Quit", curses.color_pair(COLOR_WHITE))
+                
+                safe_addstr(stdscr, controls_y + 7, 0, "  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 7, 2, "G", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 7, 3, ":Create Profile   ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 7, 21, "C", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 7, 22, ":Clear All", curses.color_pair(COLOR_WHITE))
             stdscr.refresh()
 
             key = stdscr.getch()
@@ -2488,6 +2734,23 @@ def main_menu(folder):
                         selected_tracks.clear()
                         total_selected_duration = 0
                         needs_full_redraw = True
+                elif key in (ord('g'), ord('G')):
+                    # Create deck profile
+                    stdscr.nodelay(False)  # Enable blocking input for wizard
+                    success = create_deck_profile_wizard(stdscr, {
+                        'counter_mode': COUNTER_MODE,
+                        'counter_rate': COUNTER_RATE,
+                        'counter_config': COUNTER_CONFIG_PATH,
+                        'normalization': NORMALIZATION_METHOD,
+                        'target_lufs': TARGET_LUFS,
+                        'leader_gap': LEADER_GAP_SECONDS,
+                        'track_gap': TRACK_GAP_SECONDS,
+                        'tape_type': TAPE_TYPE,
+                        'duration': TOTAL_DURATION_MINUTES,
+                        'folder': TARGET_FOLDER
+                    })
+                    stdscr.nodelay(True)  # Return to non-blocking
+                    needs_full_redraw = True
                 elif key in (ord('s'), ord('S')):
                     # Save track selection
                     if selected_tracks:
@@ -2505,42 +2768,126 @@ def main_menu(folder):
                             stdscr.nodelay(True)
                         needs_full_redraw = True
                 elif key in (ord('l'), ord('L')):
-                    # Load track selection
+                    # Load track selection or profile - show selection menu
                     selection_files = get_selection_files()
-                    if selection_files:
-                        stdscr.nodelay(False)
+                    profile_files = get_profile_files("profiles")
+                    
+                    if not selection_files and not profile_files:
+                        # Show message when no files found
                         stdscr.clear()
-                        safe_addstr(stdscr, 2, 2, "SELECT TRACK SELECTION TO LOAD:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+                        safe_addstr(stdscr, max_y//2-1, max_x//2-15, "No saved files found", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                        safe_addstr(stdscr, max_y//2+1, max_x//2-15, "(No track selections or profiles)", curses.color_pair(COLOR_CYAN))
+                        safe_addstr(stdscr, max_y//2+3, max_x//2-10, "Press any key to continue", curses.color_pair(COLOR_WHITE))
+                        stdscr.refresh()
+                        stdscr.getch()
+                        needs_full_redraw = True
+                        continue
+                    
+                    stdscr.nodelay(False)
+                    
+                    # Choose between track selections and profiles if both exist
+                    if selection_files and profile_files:
+                        load_choice = 0  # 0 = track selections, 1 = profiles
+                        need_redraw = True
                         
-                        file_index = 0
                         while True:
-                            stdscr.clear()
-                            safe_addstr(stdscr, 2, 2, "SELECT TRACK SELECTION TO LOAD:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+                            if need_redraw:
+                                stdscr.clear()
+                                need_redraw = False
+                            safe_addstr(stdscr, 2, 2, "LOAD FILES", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+                            safe_addstr(stdscr, 4, 2, "Choose what to load:", curses.color_pair(COLOR_WHITE))
                             
-                            for i, sel_file in enumerate(selection_files[:10]):  # Show max 10 files
-                                color = COLOR_YELLOW if i == file_index else COLOR_WHITE
-                                attr = curses.A_BOLD if i == file_index else 0
-                                marker = "▶" if i == file_index else " "
-                                safe_addstr(stdscr, 4 + i, 2, f"{marker} {i+1:02d}. {sel_file}", curses.color_pair(color) | attr)
+                            # Track selections option
+                            if load_choice == 0:
+                                safe_addstr(stdscr, 6, 2, "▶ Track Selections", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                            else:
+                                safe_addstr(stdscr, 6, 2, "  Track Selections", curses.color_pair(COLOR_WHITE))
+                            safe_addstr(stdscr, 6, 25, f"({len(selection_files)} available)", curses.color_pair(COLOR_CYAN))
                             
-                            safe_addstr(stdscr, 16, 2, "↑/↓: Navigate  ENTER: Load  DEL: Delete  Q: Cancel", curses.color_pair(COLOR_CYAN))
+                            # Profiles option
+                            if load_choice == 1:
+                                safe_addstr(stdscr, 7, 2, "▶ Deck Profiles", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                            else:
+                                safe_addstr(stdscr, 7, 2, "  Deck Profiles", curses.color_pair(COLOR_WHITE))
+                            safe_addstr(stdscr, 7, 25, f"({len(profile_files)} available)", curses.color_pair(COLOR_CYAN))
+                            
+                            safe_addstr(stdscr, 9, 2, "↑/↓: Navigate  ENTER: Select  Q: Cancel", curses.color_pair(COLOR_GREEN))
                             stdscr.refresh()
                             
-                            sel_key = stdscr.getch()
-                            if sel_key in (ord('q'), ord('Q')):
+                            choice_key = stdscr.getch()
+                            if choice_key in (ord('q'), ord('Q')):
                                 break
-                            elif sel_key == curses.KEY_UP and file_index > 0:
-                                file_index -= 1
-                            elif sel_key == curses.KEY_DOWN and file_index < len(selection_files) - 1:
-                                file_index += 1
-                            elif sel_key in (curses.KEY_DC, ord('d'), ord('D')):  # DEL key or D
-                                # Delete selected file with confirmation
-                                filename_to_delete = selection_files[file_index]
-                                
+                            elif choice_key == curses.KEY_UP and load_choice > 0:
+                                load_choice -= 1
+                                need_redraw = True
+                            elif choice_key == curses.KEY_DOWN and load_choice < 1:
+                                load_choice += 1
+                                need_redraw = True
+                            elif choice_key in (curses.KEY_ENTER, 10, 13):
+                                if load_choice == 0:
+                                    files_to_use = selection_files
+                                    is_profile_mode = False
+                                    file_type_name = "TRACK SELECTION"
+                                    break
+                                elif load_choice == 1:
+                                    files_to_use = profile_files
+                                    is_profile_mode = True
+                                    file_type_name = "PROFILE"
+                                    break
+                        
+                        if choice_key in (ord('q'), ord('Q')):
+                            stdscr.nodelay(True)
+                            needs_full_redraw = True
+                            continue
+                    else:
+                        # Only one type available
+                        if selection_files:
+                            files_to_use = selection_files
+                            is_profile_mode = False
+                            file_type_name = "TRACK SELECTION"
+                        else:
+                            files_to_use = profile_files
+                            is_profile_mode = True
+                            file_type_name = "PROFILE"
+                    
+                    # File selection loop
+                    file_index = 0
+                    need_redraw = True
+                    while True:
+                        if need_redraw:
+                            stdscr.clear()
+                            need_redraw = False
+                        safe_addstr(stdscr, 2, 2, f"SELECT {file_type_name} TO LOAD:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+                        
+                        for i, filepath in enumerate(files_to_use[:10]):  # Show max 10 files
+                            filename = os.path.basename(filepath)
+                            color = COLOR_YELLOW if i == file_index else COLOR_WHITE
+                            attr = curses.A_BOLD if i == file_index else 0
+                            marker = "▶" if i == file_index else " "
+                            safe_addstr(stdscr, 4 + i, 2, f"{marker} {i+1:02d}. {filename}", curses.color_pair(color) | attr)
+                        
+                        safe_addstr(stdscr, 16, 2, "↑/↓: Navigate  ENTER: Load  DEL: Delete  Q: Cancel", curses.color_pair(COLOR_CYAN))
+                        stdscr.refresh()
+                        
+                        sel_key = stdscr.getch()
+                        if sel_key in (ord('q'), ord('Q')):
+                            break
+                        elif sel_key == curses.KEY_UP and file_index > 0:
+                            file_index -= 1
+                            need_redraw = True
+                        elif sel_key == curses.KEY_DOWN and file_index < len(files_to_use) - 1:
+                            file_index += 1
+                            need_redraw = True
+                        elif sel_key in (curses.KEY_DC, ord('d'), ord('D')):  # DEL key or D
+                            # Delete selected file with confirmation - use separate dialog loop
+                            filename_to_delete = files_to_use[file_index]
+                            
+                            # Confirmation dialog loop to prevent main loop from overwriting
+                            while True:
                                 # Show confirmation dialog overlay on existing screen
                                 # Draw confirmation box with separate border and text colors
                                 dialog_y = 18
-                                safe_addstr(stdscr, dialog_y, 2, "┌─────────────────────────────────────────────────────────┐", curses.color_pair(COLOR_RED))
+                                safe_addstr(stdscr, dialog_y, 2, "┌──────────────────────────────────────────────────────┐", curses.color_pair(COLOR_RED))
                                 # Title line - separate border and text
                                 safe_addstr(stdscr, dialog_y+1, 2, "│", curses.color_pair(COLOR_RED))
                                 safe_addstr(stdscr, dialog_y+1, 3, " DELETE PLAYLIST                                       ", curses.color_pair(COLOR_RED) | curses.A_BOLD)
@@ -2562,7 +2909,7 @@ def main_menu(folder):
                                 safe_addstr(stdscr, dialog_y+5, 2, "│", curses.color_pair(COLOR_RED))
                                 safe_addstr(stdscr, dialog_y+5, 3, " Y: Yes, delete it    N: No, cancel                    ", curses.color_pair(COLOR_CYAN))
                                 safe_addstr(stdscr, dialog_y+5, 57, "│", curses.color_pair(COLOR_RED))
-                                safe_addstr(stdscr, dialog_y+6, 2, "└─────────────────────────────────────────────────────────┘", curses.color_pair(COLOR_RED))
+                                safe_addstr(stdscr, dialog_y+6, 2, "└──────────────────────────────────────────────────────┘", curses.color_pair(COLOR_RED))
                                 stdscr.refresh()
                                 
                                 confirm_key = stdscr.getch()
@@ -2570,9 +2917,13 @@ def main_menu(folder):
                                     try:
                                         os.remove(filename_to_delete)
                                         # Remove from list and adjust index
-                                        selection_files.remove(filename_to_delete)
-                                        if file_index >= len(selection_files) and len(selection_files) > 0:
-                                            file_index = len(selection_files) - 1
+                                        files_to_use.remove(filename_to_delete)
+                                        if file_index >= len(files_to_use) and len(files_to_use) > 0:
+                                            file_index = len(files_to_use) - 1
+                                        
+                                        # Exit if no files left
+                                        if not files_to_use:
+                                            return  # Exit the file selection entirely
                                         
                                         # Show success message overlay - separate border and text
                                         safe_addstr(stdscr, dialog_y+1, 2, "│", curses.color_pair(COLOR_RED))
@@ -2592,10 +2943,8 @@ def main_menu(folder):
                                         safe_addstr(stdscr, dialog_y+5, 57, "│", curses.color_pair(COLOR_RED))
                                         stdscr.refresh()
                                         stdscr.getch()
+                                        break  # Exit dialog loop after success
                                         
-                                        # Exit if no files left
-                                        if not selection_files:
-                                            break
                                     except Exception as e:
                                         # Show error message overlay - separate border and text
                                         error_msg = str(e)[:45]  # Truncate long error messages
@@ -2610,9 +2959,31 @@ def main_menu(folder):
                                         safe_addstr(stdscr, dialog_y+5, 61, "│", curses.color_pair(COLOR_RED))
                                         stdscr.refresh()
                                         stdscr.getch()
-                            elif sel_key in (curses.KEY_ENTER, 10, 13):
-                                # Load selected file
-                                loaded_tracks, missing, metadata = load_track_selection(selection_files[file_index], tracks)
+                                        break  # Exit dialog loop after error
+                                elif confirm_key in (ord('n'), ord('N'), 27):  # N or ESC to cancel
+                                    break  # Exit dialog loop on cancel
+                            # After delete dialog is closed, continue to refresh the main display
+                            need_redraw = True
+                            continue
+                        elif sel_key in (curses.KEY_ENTER, 10, 13):
+                            if is_profile_mode:
+                                # Load selected profile
+                                success, message = load_profile_runtime(files_to_use[file_index])
+                                stdscr.clear()
+                                if success:
+                                    safe_addstr(stdscr, max_y//2-1, max_x//2-15, "Profile loaded successfully!", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                                    safe_addstr(stdscr, max_y//2+1, max_x//2-20, message, curses.color_pair(COLOR_WHITE))
+                                    safe_addstr(stdscr, max_y//2+3, max_x//2-15, "Configuration updated!", curses.color_pair(COLOR_CYAN))
+                                else:
+                                    safe_addstr(stdscr, max_y//2-1, max_x//2-10, "Failed to load profile", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                                    safe_addstr(stdscr, max_y//2+1, max_x//2-20, message, curses.color_pair(COLOR_WHITE))
+                                safe_addstr(stdscr, max_y//2+5, max_x//2-10, "Press any key to continue", curses.color_pair(COLOR_WHITE))
+                                stdscr.refresh()
+                                stdscr.getch()
+                                break
+                            else:
+                                # Load selected track selection
+                                loaded_tracks, missing, metadata = load_track_selection(files_to_use[file_index], tracks)
                                 if loaded_tracks is not None:
                                     selected_tracks.clear()
                                     selected_tracks.extend(loaded_tracks)
@@ -2626,7 +2997,15 @@ def main_menu(folder):
                                     safe_addstr(stdscr, max_y//2+2, max_x//2-10, "Press any key to continue", curses.color_pair(COLOR_WHITE))
                                     stdscr.refresh()
                                     stdscr.getch()
-                                break
+                                    break
+                                else:
+                                    # Show error
+                                    stdscr.clear()
+                                    safe_addstr(stdscr, max_y//2, max_x//2-10, "Failed to load file", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                                    safe_addstr(stdscr, max_y//2+2, max_x//2-10, "Press any key to continue", curses.color_pair(COLOR_WHITE))
+                                    stdscr.refresh()
+                                    stdscr.getch()
+                                    break
                         
                         stdscr.nodelay(True)
                         needs_full_redraw = True
