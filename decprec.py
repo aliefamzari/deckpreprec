@@ -50,6 +50,8 @@ Keyboard Controls:
     C             Clear all selections
     P             Play/pause preview
     X             Stop preview and reset position
+    S             Save current track selection to file
+    L             Load track selection from file
     1/2/3         Play test tones (400Hz/1kHz/10kHz)
     ←/→, H/L      Rewind/forward 10 seconds during preview
     [/]           Jump to previous/next track and play
@@ -85,6 +87,165 @@ from datetime import datetime
 from pydub import AudioSegment
 from pydub.generators import Sine
 import tempfile
+
+# --- Track Selection Save/Load Functions ---
+def save_track_selection(selected_tracks, folder, filename=None):
+    """Save current track selection to JSON file"""
+    if not filename:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"track_selection_{timestamp}.json"
+    
+    selection_data = {
+        "created_date": datetime.now().isoformat(),
+        "folder_path": folder,
+        "total_tracks": len(selected_tracks),
+        "total_duration": sum(track['duration'] for track in selected_tracks),
+        "selected_tracks": [{
+            "name": track['name'],
+            "duration": track['duration']
+        } for track in selected_tracks]
+    }
+    
+    try:
+        with open(filename, 'w') as f:
+            json.dump(selection_data, f, indent=2)
+        return filename
+    except Exception as e:
+        return None
+
+def load_track_selection(filename, available_tracks):
+    """Load track selection from JSON file and return matching tracks"""
+    try:
+        with open(filename, 'r') as f:
+            selection_data = json.load(f)
+        
+        # Create a lookup dict for available tracks by name
+        track_lookup = {track['name']: track for track in available_tracks}
+        
+        # Find matching tracks from the saved selection
+        selected_tracks = []
+        missing_tracks = []
+        
+        for saved_track in selection_data.get('selected_tracks', []):
+            track_name = saved_track['name']
+            if track_name in track_lookup:
+                selected_tracks.append(track_lookup[track_name])
+            else:
+                missing_tracks.append(track_name)
+        
+        return selected_tracks, missing_tracks, selection_data
+    except Exception as e:
+        return None, None, None
+
+def get_filename_input(stdscr, prompt="Enter filename:", default_name=""):
+    """Get filename input from user with validation"""
+    stdscr.clear()
+    max_y, max_x = stdscr.getmaxyx()
+    
+    # Header
+    safe_addstr(stdscr, 2, 0, "═" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
+    safe_addstr(stdscr, 3, 2, "SAVE TRACK SELECTION", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+    safe_addstr(stdscr, 4, 0, "═" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
+    
+    # Instructions
+    safe_addstr(stdscr, 6, 2, prompt, curses.color_pair(COLOR_WHITE))
+    safe_addstr(stdscr, 7, 2, "(Leave empty for auto-generated name)", curses.color_pair(COLOR_YELLOW))
+    safe_addstr(stdscr, 8, 2, "(.json extension will be added automatically)", curses.color_pair(COLOR_CYAN))
+    
+    # Input field
+    input_y = 10
+    input_x = 2
+    max_filename_length = 50
+    
+    safe_addstr(stdscr, input_y, input_x, "Filename: ", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+    input_start_x = input_x + 10
+    
+    # Show input box
+    input_box = "[" + " " * max_filename_length + "]"
+    safe_addstr(stdscr, input_y, input_start_x, input_box, curses.color_pair(COLOR_WHITE))
+    
+    safe_addstr(stdscr, max_y - 3, 0, "─" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
+    safe_addstr(stdscr, max_y - 2, 2, "ENTER: Save  ESC/Q: Cancel", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+    
+    # Enable cursor and turn off nodelay
+    curses.curs_set(1)
+    stdscr.nodelay(False)
+    
+    filename = ""
+    cursor_pos = 0
+    
+    while True:
+        # Clear the input area first
+        clear_text = " " * max_filename_length
+        safe_addstr(stdscr, input_y, input_start_x + 1, clear_text, curses.color_pair(COLOR_WHITE))
+        
+        # Display current filename in input box
+        display_text = filename[:max_filename_length]
+        if display_text:
+            safe_addstr(stdscr, input_y, input_start_x + 1, display_text, curses.color_pair(COLOR_YELLOW))
+        
+        # Position cursor
+        cursor_x = min(input_start_x + 1 + len(display_text), input_start_x + max_filename_length)
+        stdscr.move(input_y, cursor_x)
+        stdscr.refresh()
+        
+        key = stdscr.getch()
+        
+        if key == 10 or key == 13:  # Enter
+            break
+        elif key == 27 or key in (ord('q'), ord('Q')):  # ESC or Q
+            curses.curs_set(0)
+            stdscr.nodelay(True)
+            return None
+        elif key == curses.KEY_BACKSPACE or key == 8 or key == 127:
+            if filename:
+                filename = filename[:-1]
+        elif key >= 32 and key <= 126 and len(filename) < max_filename_length:
+            # Valid printable character
+            char = chr(key)
+            # Only allow alphanumeric, underscore, hyphen, space
+            if char.isalnum() or char in "_- ":
+                filename += char
+    
+    # Restore cursor and nodelay settings
+    curses.curs_set(0)
+    stdscr.nodelay(True)
+    
+    # Clean up filename
+    filename = filename.strip()
+    if not filename:
+        return None  # Use auto-generated name
+    
+    # Remove any existing .json extension to avoid double extension
+    if filename.lower().endswith('.json'):
+        filename = filename[:-5]
+    
+    # Replace spaces with underscores for better file handling
+    filename = filename.replace(' ', '_')
+    
+    return f"{filename}.json"
+
+def get_selection_files(folder="."):
+    """Get list of available track selection files"""
+    try:
+        # Get all JSON files that are likely track selections
+        files = []
+        for f in os.listdir(folder):
+            if f.endswith('.json'):
+                # Check if it's a valid track selection file by trying to load it
+                try:
+                    filepath = os.path.join(folder, f)
+                    with open(filepath, 'r') as file:
+                        data = json.load(file)
+                        # Check if it has the required track selection structure
+                        if 'selected_tracks' in data and isinstance(data['selected_tracks'], list):
+                            files.append(f)
+                except:
+                    # Skip invalid JSON files
+                    continue
+        return sorted(files, reverse=True)  # Most recent first
+    except:
+        return []
 
 # --- Deck Profile Preset Loader ---
 def load_deck_profile(profile_path, args):
@@ -231,12 +392,16 @@ def draw_modern_border(stdscr, y, x, width, title=""):
         pass
 
 def draw_cassette_art(stdscr, y, x):
-    """Draw ASCII cassette tape art from cassette.txt"""
+    """Draw ASCII cassette tape art with dynamic tape length and type"""
+    # Create dynamic tape length and type displays
+    tape_length = f"{TOTAL_DURATION_MINUTES * 2} min"  # Show total tape length (both sides)
+    tape_type_display = TAPE_TYPE  # Show full "Type I", "Type II", etc.
+    
     art = [
         " ___________________________________________",
         "|  _______________________________________  |",
         "| / .-----------------------------------. \\ |",
-        "| | | /\\ :                        90 min| | |",
+        f"| | | /\\ :                        {tape_length:>6}| | |",
         "| | |/--\\:....................... NR [ ]| | |",
         "| | `-----------------------------------' | |",
         "| |      //-\\\\   |         |   //-\\\\      | |",
@@ -244,7 +409,7 @@ def draw_cassette_art(stdscr, y, x):
         "| |      \\\\-//   :....:....:   \\\\-//      | |",
         "| |       _ _ ._  _ _ .__|_ _.._  _       | |",
         "| |      (_(_)| |(_(/_|  |_(_||_)(/_      | |",
-        "| |               low noise   |           | |",
+        f"| |               {tape_type_display:^10}              | |",
         "| `______ ____________________ ____ ______' |",
         "|        /    []             []    \\        |",
         "|       /  ()                   ()  \\       |",
@@ -2249,11 +2414,11 @@ def main_menu(folder):
                 # Controls
                 controls_y = footer_y + 2
                 safe_addstr(stdscr, controls_y, 0, "CONTROLS:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 2, 0, "  ↑/↓:Nav  Space:Select  C:Clear  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 2, 35, "P", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 2, 36, ":Play  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 2, 43, "X", curses.color_pair(COLOR_RED) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 2, 44, ":Stop", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 2, 0, "  ↑/↓:Nav  Space:Select  C:Clear  S:Save  L:Load  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 2, 50, "P", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 2, 51, ":Play  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 2, 58, "X", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 2, 59, ":Stop", curses.color_pair(COLOR_WHITE))
                 
                 safe_addstr(stdscr, controls_y + 3, 0, "  ", curses.color_pair(COLOR_WHITE))
                 safe_addstr(stdscr, controls_y + 3, 2, "←", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
@@ -2317,6 +2482,148 @@ def main_menu(folder):
                     if selected_tracks:
                         selected_tracks.clear()
                         total_selected_duration = 0
+                        needs_full_redraw = True
+                elif key in (ord('s'), ord('S')):
+                    # Save track selection
+                    if selected_tracks:
+                        # Get custom filename from user
+                        custom_filename = get_filename_input(stdscr, "Enter filename for track selection:")
+                        filename = save_track_selection(selected_tracks, folder, custom_filename)
+                        if filename:
+                            # Show success message briefly
+                            stdscr.nodelay(False)
+                            stdscr.clear()
+                            safe_addstr(stdscr, max_y//2, max_x//2-15, f"Saved: {filename}", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                            safe_addstr(stdscr, max_y//2+1, max_x//2-10, "Press any key to continue", curses.color_pair(COLOR_WHITE))
+                            stdscr.refresh()
+                            stdscr.getch()
+                            stdscr.nodelay(True)
+                        needs_full_redraw = True
+                elif key in (ord('l'), ord('L')):
+                    # Load track selection
+                    selection_files = get_selection_files()
+                    if selection_files:
+                        stdscr.nodelay(False)
+                        stdscr.clear()
+                        safe_addstr(stdscr, 2, 2, "SELECT TRACK SELECTION TO LOAD:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+                        
+                        file_index = 0
+                        while True:
+                            stdscr.clear()
+                            safe_addstr(stdscr, 2, 2, "SELECT TRACK SELECTION TO LOAD:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+                            
+                            for i, sel_file in enumerate(selection_files[:10]):  # Show max 10 files
+                                color = COLOR_YELLOW if i == file_index else COLOR_WHITE
+                                attr = curses.A_BOLD if i == file_index else 0
+                                marker = "▶" if i == file_index else " "
+                                safe_addstr(stdscr, 4 + i, 2, f"{marker} {i+1:02d}. {sel_file}", curses.color_pair(color) | attr)
+                            
+                            safe_addstr(stdscr, 16, 2, "↑/↓: Navigate  ENTER: Load  DEL: Delete  Q: Cancel", curses.color_pair(COLOR_CYAN))
+                            stdscr.refresh()
+                            
+                            sel_key = stdscr.getch()
+                            if sel_key in (ord('q'), ord('Q')):
+                                break
+                            elif sel_key == curses.KEY_UP and file_index > 0:
+                                file_index -= 1
+                            elif sel_key == curses.KEY_DOWN and file_index < len(selection_files) - 1:
+                                file_index += 1
+                            elif sel_key in (curses.KEY_DC, ord('d'), ord('D')):  # DEL key or D
+                                # Delete selected file with confirmation
+                                filename_to_delete = selection_files[file_index]
+                                
+                                # Show confirmation dialog overlay on existing screen
+                                # Draw confirmation box with separate border and text colors
+                                dialog_y = 18
+                                safe_addstr(stdscr, dialog_y, 2, "┌─────────────────────────────────────────────────────────┐", curses.color_pair(COLOR_RED))
+                                # Title line - separate border and text
+                                safe_addstr(stdscr, dialog_y+1, 2, "│", curses.color_pair(COLOR_RED))
+                                safe_addstr(stdscr, dialog_y+1, 3, " DELETE PLAYLIST                                       ", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                                safe_addstr(stdscr, dialog_y+1, 57, "│", curses.color_pair(COLOR_RED))
+                                # Empty line
+                                safe_addstr(stdscr, dialog_y+2, 2, "│                                                      │", curses.color_pair(COLOR_RED))
+                                # Filename line - separate border and text
+                                max_filename_width = 44
+                                if len(filename_to_delete) > max_filename_width:
+                                    display_filename = filename_to_delete[:max_filename_width-3] + "..."
+                                else:
+                                    display_filename = filename_to_delete
+                                safe_addstr(stdscr, dialog_y+3, 2, "│", curses.color_pair(COLOR_RED))
+                                safe_addstr(stdscr, dialog_y+3, 3, f" Delete: {display_filename:<48} ", curses.color_pair(COLOR_YELLOW))
+                                safe_addstr(stdscr, dialog_y+3, 57, "│", curses.color_pair(COLOR_RED))
+                                # Empty line
+                                safe_addstr(stdscr, dialog_y+4, 2, "│                                                      │", curses.color_pair(COLOR_RED))
+                                # Controls line - separate border and text
+                                safe_addstr(stdscr, dialog_y+5, 2, "│", curses.color_pair(COLOR_RED))
+                                safe_addstr(stdscr, dialog_y+5, 3, " Y: Yes, delete it    N: No, cancel                    ", curses.color_pair(COLOR_CYAN))
+                                safe_addstr(stdscr, dialog_y+5, 57, "│", curses.color_pair(COLOR_RED))
+                                safe_addstr(stdscr, dialog_y+6, 2, "└─────────────────────────────────────────────────────────┘", curses.color_pair(COLOR_RED))
+                                stdscr.refresh()
+                                
+                                confirm_key = stdscr.getch()
+                                if confirm_key in (ord('y'), ord('Y')):
+                                    try:
+                                        os.remove(filename_to_delete)
+                                        # Remove from list and adjust index
+                                        selection_files.remove(filename_to_delete)
+                                        if file_index >= len(selection_files) and len(selection_files) > 0:
+                                            file_index = len(selection_files) - 1
+                                        
+                                        # Show success message overlay - separate border and text
+                                        safe_addstr(stdscr, dialog_y+1, 2, "│", curses.color_pair(COLOR_RED))
+                                        safe_addstr(stdscr, dialog_y+1, 3, " ✓ PLAYLIST DELETED SUCCESSFULLY                       ", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                                        safe_addstr(stdscr, dialog_y+1, 57, "│", curses.color_pair(COLOR_RED))
+                                        # Truncate filename for success message
+                                        max_filename_width = 49
+                                        if len(filename_to_delete) > max_filename_width:
+                                            display_filename = filename_to_delete[:max_filename_width-3] + "..."
+                                        else:
+                                            display_filename = filename_to_delete
+                                        safe_addstr(stdscr, dialog_y+3, 2, "│", curses.color_pair(COLOR_RED))
+                                        safe_addstr(stdscr, dialog_y+3, 3, f" Deleted: {display_filename:<48} ", curses.color_pair(COLOR_WHITE))
+                                        safe_addstr(stdscr, dialog_y+3, 57, "│", curses.color_pair(COLOR_RED))
+                                        safe_addstr(stdscr, dialog_y+5, 2, "│", curses.color_pair(COLOR_RED))
+                                        safe_addstr(stdscr, dialog_y+5, 3, " Press any key to continue...                          ", curses.color_pair(COLOR_WHITE))
+                                        safe_addstr(stdscr, dialog_y+5, 57, "│", curses.color_pair(COLOR_RED))
+                                        stdscr.refresh()
+                                        stdscr.getch()
+                                        
+                                        # Exit if no files left
+                                        if not selection_files:
+                                            break
+                                    except Exception as e:
+                                        # Show error message overlay - separate border and text
+                                        error_msg = str(e)[:45]  # Truncate long error messages
+                                        safe_addstr(stdscr, dialog_y+1, 2, "│", curses.color_pair(COLOR_RED))
+                                        safe_addstr(stdscr, dialog_y+1, 3, " ✗ ERROR DELETING PLAYLIST                             ", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                                        safe_addstr(stdscr, dialog_y+1, 61, "│", curses.color_pair(COLOR_RED))
+                                        safe_addstr(stdscr, dialog_y+3, 2, "│", curses.color_pair(COLOR_RED))
+                                        safe_addstr(stdscr, dialog_y+3, 3, f" Error: {error_msg:<49}  ", curses.color_pair(COLOR_WHITE))
+                                        safe_addstr(stdscr, dialog_y+3, 61, "│", curses.color_pair(COLOR_RED))
+                                        safe_addstr(stdscr, dialog_y+5, 2, "│", curses.color_pair(COLOR_RED))
+                                        safe_addstr(stdscr, dialog_y+5, 3, " Press any key to continue...                          ", curses.color_pair(COLOR_WHITE))
+                                        safe_addstr(stdscr, dialog_y+5, 61, "│", curses.color_pair(COLOR_RED))
+                                        stdscr.refresh()
+                                        stdscr.getch()
+                            elif sel_key in (curses.KEY_ENTER, 10, 13):
+                                # Load selected file
+                                loaded_tracks, missing, metadata = load_track_selection(selection_files[file_index], tracks)
+                                if loaded_tracks is not None:
+                                    selected_tracks.clear()
+                                    selected_tracks.extend(loaded_tracks)
+                                    total_selected_duration = sum(track['duration'] for track in selected_tracks)
+                                    
+                                    # Show load result
+                                    stdscr.clear()
+                                    safe_addstr(stdscr, max_y//2-2, max_x//2-15, f"Loaded {len(loaded_tracks)} tracks", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                                    if missing:
+                                        safe_addstr(stdscr, max_y//2, max_x//2-15, f"Missing: {len(missing)} tracks", curses.color_pair(COLOR_YELLOW))
+                                    safe_addstr(stdscr, max_y//2+2, max_x//2-10, "Press any key to continue", curses.color_pair(COLOR_WHITE))
+                                    stdscr.refresh()
+                                    stdscr.getch()
+                                break
+                        
+                        stdscr.nodelay(True)
                         needs_full_redraw = True
                 elif key in (ord('p'), ord('P')):
                     if previewing_index == current_index and playing:

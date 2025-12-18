@@ -87,7 +87,8 @@ A nostalgic cassette tape recording utility with. Perfect for mixtapes nerd cura
 ## ✨ Features
 
 - 🎨 **Professional UI** - Clean colors, ASCII cassette art, and authentic tape deck aesthetics
-- 🔊 **Audio Normalization** - Consistent volume levels across all tracks (cached for speed)
+- � **Track Selection Save/Load** - Save and load track selections for reusable mixtape configurations
+- �🔊 **Audio Normalization** - Consistent volume levels across all tracks (cached for speed)
   - Supports both **Peak** and **LUFS** normalization methods
   - LUFS normalization for broadcast-standard perceived loudness
   - Configurable target LUFS level (default: -14.0 LUFS)
@@ -437,6 +438,8 @@ python decprec.py --counter-mode manual --counter-config deck_a.json
 | `↑` / `↓` / `K` / `J` | Navigate tracks (stops at first/last, keeps current track playing) |
 | `Space` | Select/deselect track for recording |
 | `C` | Clear all selected tracks |
+| `S` | Save current track selection to file |
+| `L` | Load track selection from file |
 | `P` | Play/Pause track (toggle playback) |
 | `X` | Stop playback and reset position |
 | `1` | Play 400Hz test tone (30 seconds) |
