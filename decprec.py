@@ -83,7 +83,12 @@ import curses
 import random
 import math
 import numpy as np
+import warnings
 from datetime import datetime
+
+# Suppress pydub's ffmpeg detection warning since we configure paths explicitly
+warnings.filterwarnings("ignore", message="Couldn't find ffmpeg or avconv - defaulting to ffmpeg, but may not work", category=RuntimeWarning)
+
 from pydub import AudioSegment
 from pydub.generators import Sine
 import tempfile
