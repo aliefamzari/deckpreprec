@@ -76,7 +76,7 @@ The wizard will ask for counter values at these times:
 python decprec.py --counter-mode manual
 ```
 
-The calibration is saved to `counter_calibration.json` and reused automatically!
+The calibration is saved to `profiles/counter_calibration.json` and reused automatically!
 
 ---
 

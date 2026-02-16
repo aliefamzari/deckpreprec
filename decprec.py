@@ -27,11 +27,11 @@ Features:
 
 Usage:
   python3 decprec.py [OPTIONS]
-  python3 decprec.py --folder ./tracks --counter-mode manual --tape-type "Type II"
+  python3 decprec.py --tracks-folder ./tracks --counter-mode manual --tape-type "Type II"
   python3 decprec.py --deck-profile profiles/aiwa_adf780.json
 
 Arguments:
-  --folder           Path to audio tracks directory (default: ./tracks)
+  --tracks-folder    Path to audio tracks directory (default: ./tracks)
   --track-gap        Gap between tracks in seconds (default: 5)
   --duration         Maximum tape duration in minutes (default: 60)
   --counter-mode     Counter calculation mode: manual|auto|static (default: static)
@@ -309,7 +309,7 @@ def load_profile_runtime(profile_path):
     """Load deck profile at runtime and update global variables."""
     global COUNTER_MODE, COUNTER_RATE, COUNTER_CONFIG_PATH, LEADER_GAP_SECONDS
     global NORMALIZATION_METHOD, TARGET_LUFS, TAPE_TYPE, TOTAL_DURATION_MINUTES
-    global TRACK_GAP_SECONDS, TARGET_FOLDER, AUDIO_LATENCY, CALIBRATION_DATA
+    global TRACK_GAP_SECONDS, TRACKS_FOLDER, AUDIO_LATENCY, CALIBRATION_DATA
     global ACTIVE_PROFILE_NAME
     
     if not os.path.isfile(profile_path):
@@ -344,14 +344,14 @@ def load_profile_runtime(profile_path):
         TOTAL_DURATION_MINUTES = profile['duration']
     if 'track_gap' in profile:
         TRACK_GAP_SECONDS = profile['track_gap']
-    if 'folder' in profile:
-        TARGET_FOLDER = profile['folder']
+    if 'tracks_folder' in profile:
+        TRACKS_FOLDER = profile['tracks_folder']
     if 'audio_latency' in profile:
         AUDIO_LATENCY = profile['audio_latency']
     
     # Reload calibration data if counter mode is manual
     if COUNTER_MODE == "manual":
-        config_path = os.path.join(TARGET_FOLDER, COUNTER_CONFIG_PATH)
+        config_path = os.path.join(PROFILES_DIR, COUNTER_CONFIG_PATH)
         CALIBRATION_DATA = load_calibration_config(config_path)
     
     # Update active profile name for display
@@ -471,31 +471,200 @@ def create_deck_profile_wizard(stdscr, current_settings):
                 'track_gap': current_settings['track_gap'],
                 'tape_type': current_settings['tape_type'],
                 'duration': current_settings['duration'],
-                'folder': current_settings['folder'],
+                'tracks_folder': current_settings['tracks_folder'],
                 'audio_latency': current_settings['audio_latency']
             })
             break
         elif key in (ord('n'), ord('N')):
-            # Custom configuration - for now, just use current settings but allow future expansion
-            safe_addstr(stdscr, 11, 2, "Custom configuration wizard not yet implemented.", curses.color_pair(COLOR_YELLOW))
-            safe_addstr(stdscr, 12, 2, "Using current settings for now. Press any key to continue...", curses.color_pair(COLOR_WHITE))
-            stdscr.refresh()
-            stdscr.getch()
+            # Custom configuration wizard
+            custom_settings = {}
             
+            # Helper function for menu selection
+            def select_from_menu(title, options, descriptions=None, current_index=0):
+                """Display menu and return selected index"""
+                selected = current_index
+                while True:
+                    stdscr.clear()
+                    safe_addstr(stdscr, 2, 0, "═" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
+                    safe_addstr(stdscr, 3, 2, title, curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+                    safe_addstr(stdscr, 4, 0, "═" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
+                    
+                    for i, option in enumerate(options):
+                        color = COLOR_YELLOW if i == selected else COLOR_WHITE
+                        attr = curses.A_BOLD if i == selected else 0
+                        marker = "▶" if i == selected else " "
+                        safe_addstr(stdscr, 6 + i * 2, 2, f"{marker} {option}", curses.color_pair(color) | attr)
+                        
+                        if descriptions and i < len(descriptions):
+                            safe_addstr(stdscr, 7 + i * 2, 4, descriptions[i], curses.color_pair(COLOR_CYAN))
+                    
+                    safe_addstr(stdscr, 6 + len(options) * 2 + 2, 2, "↑/↓: Navigate  ENTER: Select  Q: Cancel", curses.color_pair(COLOR_GREEN))
+                    stdscr.refresh()
+                    
+                    key = stdscr.getch()
+                    if key == curses.KEY_UP and selected > 0:
+                        selected -= 1
+                    elif key == curses.KEY_DOWN and selected < len(options) - 1:
+                        selected += 1
+                    elif key in (curses.KEY_ENTER, 10, 13):
+                        return selected
+                    elif key in (27, ord('q'), ord('Q')):
+                        return None
+            
+            # Helper function for numeric input
+            def get_numeric_input(title, prompt, default_value, is_float=False, min_val=None, max_val=None):
+                """Get numeric input from user"""
+                value_str = str(default_value)
+                
+                while True:
+                    stdscr.clear()
+                    safe_addstr(stdscr, 2, 0, "═" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
+                    safe_addstr(stdscr, 3, 2, title, curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+                    safe_addstr(stdscr, 4, 0, "═" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
+                    
+                    safe_addstr(stdscr, 6, 2, prompt, curses.color_pair(COLOR_WHITE))
+                    safe_addstr(stdscr, 8, 2, "Value: [", curses.color_pair(COLOR_WHITE))
+                    safe_addstr(stdscr, 8, 10, value_str + " " * (20 - len(value_str)), curses.color_pair(COLOR_YELLOW))
+                    safe_addstr(stdscr, 8, 30, "]", curses.color_pair(COLOR_WHITE))
+                    
+                    if min_val is not None or max_val is not None:
+                        range_text = f"Range: "
+                        if min_val is not None:
+                            range_text += f"min {min_val}"
+                        if max_val is not None:
+                            if min_val is not None:
+                                range_text += f", max {max_val}"
+                            else:
+                                range_text += f"max {max_val}"
+                        safe_addstr(stdscr, 10, 2, range_text, curses.color_pair(COLOR_CYAN))
+                    
+                    safe_addstr(stdscr, 12, 2, "ENTER: Confirm  BACKSPACE: Edit  Q: Cancel", curses.color_pair(COLOR_GREEN))
+                    stdscr.move(8, 10 + len(value_str))
+                    stdscr.refresh()
+                    
+                    key = stdscr.getch()
+                    if key in (curses.KEY_ENTER, 10, 13):
+                        try:
+                            if is_float:
+                                val = float(value_str)
+                            else:
+                                val = int(value_str)
+                            
+                            if min_val is not None and val < min_val:
+                                continue
+                            if max_val is not None and val > max_val:
+                                continue
+                            return val
+                        except ValueError:
+                            continue
+                    elif key in (curses.KEY_BACKSPACE, 8, 127):
+                        if value_str:
+                            value_str = value_str[:-1]
+                    elif key in (27, ord('q'), ord('Q')):
+                        return None
+                    elif 32 <= key <= 126:
+                        char = chr(key)
+                        if is_float:
+                            if char.isdigit() or char in '.-':
+                                value_str += char
+                        else:
+                            if char.isdigit():
+                                value_str += char
+            
+            # Step 1: Counter Mode
+            counter_modes = ["static", "manual", "auto"]
+            counter_desc = [
+                "Constant rate throughout tape",
+                "Uses calibrated deck measurements",
+                "Realistic physics-based simulation"
+            ]
+            current_mode_idx = counter_modes.index(current_settings['counter_mode']) if current_settings['counter_mode'] in counter_modes else 0
+            mode_idx = select_from_menu("COUNTER MODE", counter_modes, counter_desc, current_mode_idx)
+            if mode_idx is None:
+                break
+            custom_settings['counter_mode'] = counter_modes[mode_idx]
+            
+            # Step 2: Counter-specific settings
+            if custom_settings['counter_mode'] == 'manual':
+                custom_settings['counter_config'] = current_settings['counter_config']
+                custom_settings['counter_rate'] = current_settings['counter_rate']
+            elif custom_settings['counter_mode'] == 'static':
+                rate = get_numeric_input("COUNTER RATE", "Enter counter rate (counts per second):", current_settings['counter_rate'], is_float=True, min_val=0.1, max_val=10.0)
+                if rate is None:
+                    break
+                custom_settings['counter_rate'] = rate
+                custom_settings['counter_config'] = current_settings['counter_config']
+            else:  # auto
+                custom_settings['counter_rate'] = current_settings['counter_rate']
+                custom_settings['counter_config'] = current_settings['counter_config']
+            
+            # Step 3: Normalization Method
+            norm_methods = ["lufs", "peak"]
+            norm_desc = [
+                "Loudness Units Full Scale (recommended)",
+                "Peak amplitude normalization"
+            ]
+            current_norm_idx = norm_methods.index(current_settings['normalization']) if current_settings['normalization'] in norm_methods else 0
+            norm_idx = select_from_menu("NORMALIZATION METHOD", norm_methods, norm_desc, current_norm_idx)
+            if norm_idx is None:
+                break
+            custom_settings['normalization'] = norm_methods[norm_idx]
+            
+            # Step 4: Target LUFS (if lufs normalization)
+            if custom_settings['normalization'] == 'lufs':
+                lufs = get_numeric_input("TARGET LUFS", "Enter target LUFS level:", current_settings['target_lufs'], is_float=True, min_val=-30.0, max_val=0.0)
+                if lufs is None:
+                    break
+                custom_settings['target_lufs'] = lufs
+            else:
+                custom_settings['target_lufs'] = current_settings['target_lufs']
+            
+            # Step 5: Tape Type
+            tape_types = ["Type I", "Type II", "Type III", "Type IV"]
+            tape_desc = [
+                "Normal/Ferric (Standard 120µs EQ)",
+                "Chrome/High Bias (70µs EQ)",
+                "Ferrochrome (Dual layer)",
+                "Metal (High performance)"
+            ]
+            current_tape_idx = tape_types.index(current_settings['tape_type']) if current_settings['tape_type'] in tape_types else 0
+            tape_idx = select_from_menu("TAPE TYPE", tape_types, tape_desc, current_tape_idx)
+            if tape_idx is None:
+                break
+            custom_settings['tape_type'] = tape_types[tape_idx]
+            
+            # Step 6: Tape Duration
+            duration = get_numeric_input("TAPE DURATION", "Enter tape length in minutes (e.g., 30 for C60):", current_settings['duration'], is_float=False, min_val=1, max_val=120)
+            if duration is None:
+                break
+            custom_settings['duration'] = duration
+            
+            # Step 7: Leader Gap
+            leader = get_numeric_input("LEADER GAP", "Leader gap before first track (seconds):", current_settings['leader_gap'], is_float=False, min_val=0, max_val=60)
+            if leader is None:
+                break
+            custom_settings['leader_gap'] = leader
+            
+            # Step 8: Track Gap
+            gap = get_numeric_input("TRACK GAP", "Gap between tracks (seconds):", current_settings['track_gap'], is_float=False, min_val=0, max_val=30)
+            if gap is None:
+                break
+            custom_settings['track_gap'] = gap
+            
+            # Step 9: Audio Latency
+            latency = get_numeric_input("AUDIO LATENCY", "Audio latency compensation (seconds):", current_settings['audio_latency'], is_float=True, min_val=0.0, max_val=2.0)
+            if latency is None:
+                break
+            custom_settings['audio_latency'] = latency
+            
+            # Step 10: Tracks Folder (use current)
+            custom_settings['tracks_folder'] = current_settings['tracks_folder']
+            
+            # Create profile data
             profile_data.update({
                 'created_date': datetime.now().isoformat(),
-                'description': f'Profile created from current settings (custom wizard TBD)',
-                'counter_mode': current_settings['counter_mode'],
-                'counter_rate': current_settings['counter_rate'],
-                'counter_config': current_settings['counter_config'],
-                'normalization': current_settings['normalization'],
-                'target_lufs': current_settings['target_lufs'],
-                'leader_gap': current_settings['leader_gap'],
-                'track_gap': current_settings['track_gap'],
-                'tape_type': current_settings['tape_type'],
-                'duration': current_settings['duration'],
-                'folder': current_settings['folder'],
-                'audio_latency': current_settings['audio_latency']
+                'description': f'Custom profile: {profile_name}',
+                **custom_settings
             })
             break
         elif key == 27 or key in (ord('q'), ord('Q')):  # ESC or Q
@@ -518,17 +687,29 @@ def create_deck_profile_wizard(stdscr, current_settings):
         with open(profile_filename, 'w') as f:
             json.dump(profile_data, f, indent=2)
         
+        # Load the profile immediately
+        success, message = load_profile_runtime(profile_filename)
+        
         # Success message
         stdscr.clear()
         safe_addstr(stdscr, 2, 0, "═" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
-        safe_addstr(stdscr, 3, 2, "PROFILE CREATED SUCCESSFULLY", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+        safe_addstr(stdscr, 3, 2, "PROFILE CREATED AND LOADED", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
         safe_addstr(stdscr, 4, 0, "═" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
         
         safe_addstr(stdscr, 6, 2, f"Profile saved as: {profile_filename}", curses.color_pair(COLOR_WHITE))
-        safe_addstr(stdscr, 8, 2, "To use this profile:", curses.color_pair(COLOR_CYAN))
-        safe_addstr(stdscr, 9, 2, f"python3 decprec.py --deck-profile {profile_filename}", curses.color_pair(COLOR_YELLOW))
         
-        safe_addstr(stdscr, 12, 2, "Press any key to return to main menu...", curses.color_pair(COLOR_GREEN))
+        if success:
+            safe_addstr(stdscr, 7, 2, f"✓ {message}", curses.color_pair(COLOR_GREEN))
+            safe_addstr(stdscr, 9, 2, "The profile is now active and ready to use!", curses.color_pair(COLOR_CYAN))
+        else:
+            safe_addstr(stdscr, 7, 2, f"⚠ Profile saved but not loaded: {message}", curses.color_pair(COLOR_YELLOW))
+        
+        safe_addstr(stdscr, 11, 2, "Configuration applied:", curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, 12, 2, f"  Counter: {profile_data.get('counter_mode', 'N/A')}", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, 13, 2, f"  Normalization: {profile_data.get('normalization', 'N/A')}", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, 14, 2, f"  Tape: {profile_data.get('tape_type', 'N/A')} ({profile_data.get('duration', 'N/A')} min)", curses.color_pair(COLOR_WHITE))
+        
+        safe_addstr(stdscr, 17, 2, "Press any key to return to main menu...", curses.color_pair(COLOR_GREEN))
         stdscr.refresh()
         stdscr.getch()
         
@@ -559,7 +740,7 @@ except ImportError:
 parser = argparse.ArgumentParser(description="Audio Player for Tape Recording")
 parser.add_argument("--track-gap", type=int, default=5, help="Gap between tracks in seconds (default: 5)")
 parser.add_argument("--duration", type=int, default=30, help="Maximum tape duration in minutes per side (default: 30 - C60 cassette side)")
-parser.add_argument("--folder", type=str, default="./tracks", help="Folder with audio tracks")
+parser.add_argument("--tracks-folder", type=str, default="./tracks", help="Folder with audio tracks")
 parser.add_argument("--counter-rate", type=float, default=1.0, help="Tape counter increments per second for static mode (default: 1.0)")
 parser.add_argument("--counter-mode", type=str, default="static", choices=["manual", "auto", "static"], help="Counter calculation mode: 'manual' (calibrated), 'auto' (physics), 'static' (constant rate) (default: static)")
 parser.add_argument("--calibrate-counter", action="store_true", help="Run interactive counter calibration wizard")
@@ -586,7 +767,7 @@ if args.deck_profile:
 
 TRACK_GAP_SECONDS = args.track_gap
 TOTAL_DURATION_MINUTES = args.duration
-TARGET_FOLDER = args.folder
+TRACKS_FOLDER = args.tracks_folder
 COUNTER_RATE = args.counter_rate
 COUNTER_MODE = args.counter_mode
 COUNTER_CONFIG_PATH = args.counter_config
@@ -692,6 +873,9 @@ def draw_cassette_art(stdscr, y, x):
             stdscr.addstr(y + i, x, line, curses.color_pair(COLOR_MAGENTA))
         except:
             pass
+
+# Directory for profiles and calibration files
+PROFILES_DIR = "profiles"
 
 # Global calibration data loaded from config file
 CALIBRATION_DATA = None
@@ -1004,8 +1188,8 @@ def calibrate_counter_wizard():
     }
     
     # Save to file
-    config_path = os.path.join(TARGET_FOLDER, COUNTER_CONFIG_PATH)
-    os.makedirs(os.path.dirname(config_path) if os.path.dirname(config_path) else '.', exist_ok=True)
+    config_path = os.path.join(PROFILES_DIR, COUNTER_CONFIG_PATH)
+    os.makedirs(PROFILES_DIR, exist_ok=True)
     
     try:
         with open(config_path, 'w') as f:
@@ -1014,7 +1198,7 @@ def calibrate_counter_wizard():
         print("\n" + "="*70)
         print(f"✓ Calibration saved to: {config_path}")
         print("\nTo use this calibration:")
-        print(f"  python3 decprec.py --counter-mode manual --folder {TARGET_FOLDER}")
+        print(f"  python3 decprec.py --counter-mode manual --tracks-folder {TRACKS_FOLDER}")
         print("\nYou can edit the JSON file manually if needed.")
         print("="*70 + "\n")
     except Exception as e:
@@ -1043,23 +1227,31 @@ def draw_config_info(stdscr, y, x, compact=False, selected_tracks=None, show_war
         counter_info = f"Counter: {mode_names.get(COUNTER_MODE, COUNTER_MODE)}"
         if COUNTER_MODE == "static":
             counter_info += f" ({COUNTER_RATE} counts/sec)"
-        elif COUNTER_MODE == "manual" and CALIBRATION_DATA:
-            deck = CALIBRATION_DATA.get('deck_model', 'Unknown')
-            counter_info += f" ({deck})"
+        elif COUNTER_MODE == "manual":
+            if CALIBRATION_DATA:
+                deck = CALIBRATION_DATA.get('deck_model', 'Unknown')
+                counter_info += f" ({deck})"
         safe_addstr(stdscr, y + 1, x, counter_info, curses.color_pair(COLOR_CYAN))
+        
+        # Show config file name for manual mode
+        line_offset = 2
+        if COUNTER_MODE == "manual":
+            config_filename = os.path.basename(COUNTER_CONFIG_PATH)
+            safe_addstr(stdscr, y + 2, x + 2, f"└─ Using: {config_filename}", curses.color_pair(COLOR_YELLOW))
+            line_offset = 3  # Add extra line for manual mode
         
         # Tape type information
         tape_info = get_tape_type_info(TAPE_TYPE)
         tape_line = f"Tape: {TAPE_TYPE} - {tape_info['name']} ({tape_info['bias']})"
-        safe_addstr(stdscr, y + 2, x, tape_line, curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, y + line_offset, x, tape_line, curses.color_pair(COLOR_CYAN))
         
         norm_info = f"Audio: {NORMALIZATION_METHOD.upper()} normalization"
         if NORMALIZATION_METHOD == "lufs":
             norm_info += f" (target: {TARGET_LUFS:+.1f} LUFS)"
-        safe_addstr(stdscr, y + 3, x, norm_info, curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, y + line_offset + 1, x, norm_info, curses.color_pair(COLOR_CYAN))
         
         timing_info = f"Timing: {LEADER_GAP_SECONDS}s leader + {TRACK_GAP_SECONDS}s gaps"
-        safe_addstr(stdscr, y + 4, x, timing_info, curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, y + line_offset + 2, x, timing_info, curses.color_pair(COLOR_CYAN))
         
         # Add Total Recording Time and Tape Length to compact mode
         if selected_tracks and len(selected_tracks) > 0:
@@ -1068,8 +1260,8 @@ def draw_config_info(stdscr, y, x, compact=False, selected_tracks=None, show_war
         else:
             total_with_gaps = 0
         
-        safe_addstr(stdscr, y + 5, x, "Total Recording Time: ", curses.color_pair(COLOR_CYAN))
-        safe_addstr(stdscr, y + 5, x + 22, format_duration(total_with_gaps), curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, y + line_offset + 3, x, "Total Recording Time: ", curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, y + line_offset + 3, x + 22, format_duration(total_with_gaps), curses.color_pair(COLOR_CYAN))
         
         # Tape length with C-type indicator
         tape_type_indicator = ""
@@ -1080,11 +1272,12 @@ def draw_config_info(stdscr, y, x, compact=False, selected_tracks=None, show_war
         elif TOTAL_DURATION_MINUTES == 60:
             tape_type_indicator = " (C120)"
         
-        safe_addstr(stdscr, y + 6, x, "Tape Length: ", curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, y + line_offset + 4, x, "Tape Length: ", curses.color_pair(COLOR_CYAN))
         tape_length_text = f"{TOTAL_DURATION_MINUTES}min{tape_type_indicator}"
-        safe_addstr(stdscr, y + 6, x + 13, tape_length_text, curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, y + line_offset + 4, x + 13, tape_length_text, curses.color_pair(COLOR_CYAN))
         
-        return 7  # Height used for compact mode (now includes recording time and tape length)
+        # Height used for compact mode: base 7 lines plus 1 extra for manual mode
+        return 7 if COUNTER_MODE != "manual" else 8
     else:
         # Multi-line detailed format for main menu and preview
         safe_addstr(stdscr, y, x, "CONFIGURATION:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
@@ -1099,11 +1292,18 @@ def draw_config_info(stdscr, y, x, compact=False, selected_tracks=None, show_war
         counter_info = f"Counter: {mode_names.get(COUNTER_MODE, COUNTER_MODE)}"
         if COUNTER_MODE == "static":
             counter_info += f" ({COUNTER_RATE} counts/sec)"
-        elif COUNTER_MODE == "manual" and CALIBRATION_DATA:
-            deck = CALIBRATION_DATA.get('deck_model', 'Unknown')
-            counter_info += f" ({deck})"
+        elif COUNTER_MODE == "manual":
+            if CALIBRATION_DATA:
+                deck = CALIBRATION_DATA.get('deck_model', 'Unknown')
+                counter_info += f" ({deck})"
         safe_addstr(stdscr, current_line, x, counter_info, curses.color_pair(COLOR_CYAN))
         current_line += 1
+        
+        # Show config file name for manual mode
+        if COUNTER_MODE == "manual":
+            config_filename = os.path.basename(COUNTER_CONFIG_PATH)
+            safe_addstr(stdscr, current_line, x + 2, f"└─ Using: {config_filename}", curses.color_pair(COLOR_YELLOW))
+            current_line += 1
         
         # Tape type information
         tape_info = get_tape_type_info(TAPE_TYPE)
@@ -1693,9 +1893,9 @@ def show_normalization_summary(stdscr, normalized_tracks):
             needs_full_redraw = False
         
         # Header
-        safe_addstr(stdscr, 0, 0, "═" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, 0, 0, "═" * (max_x - 1), curses.color_pair(COLOR_CYAN))
         safe_addstr(stdscr, 1, 15, "NORMALIZATION COMPLETE - PREVIEW MODE", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-        safe_addstr(stdscr, 2, 0, "═" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, 2, 0, "═" * (max_x - 1), curses.color_pair(COLOR_CYAN))
         
         # Configuration info - create track list for timing calculation
         track_list = [{'duration': track['audio'].duration_seconds} for track in normalized_tracks]
@@ -1705,7 +1905,7 @@ def show_normalization_summary(stdscr, normalized_tracks):
         show_warning = at_capacity  # No time-based warning in preview mode
         
         config_height = draw_config_info(stdscr, 3, 2, selected_tracks=track_list, show_warning=show_warning)
-        safe_addstr(stdscr, 3 + config_height, 0, "─" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, 3 + config_height, 0, "─" * (max_x - 1), curses.color_pair(COLOR_CYAN))
         
         # Playback Status Section
         playback_section_y = 3 + config_height + 2
@@ -1763,13 +1963,13 @@ def show_normalization_summary(stdscr, normalized_tracks):
             level_l, level_r = 0.0, 0.0
             safe_addstr(stdscr, meter_y, 0, "Ready to preview tracks", curses.color_pair(COLOR_WHITE))
         
-        safe_addstr(stdscr, meter_y + 2, 0, "─" * min(78, max_x - 1), curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, meter_y + 2, 0, "─" * (max_x - 1), curses.color_pair(COLOR_CYAN))
         draw_vu_meter(stdscr, meter_y + 3, 2, level_l, max_width=50, label="L")
         # dBFS scale between meters
         db_scale = "    -60  -40  -30  -20  -12   -6   -3    0 dBFS"
         safe_addstr(stdscr, meter_y + 4, 2, db_scale, curses.color_pair(COLOR_YELLOW))
         draw_vu_meter(stdscr, meter_y + 5, 2, level_r, max_width=50, label="R")
-        safe_addstr(stdscr, meter_y + 6, 0, "─" * min(78, max_x - 1), curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, meter_y + 6, 0, "─" * (max_x - 1), curses.color_pair(COLOR_CYAN))
         
         # Track list with method indicator
         tracklist_y = meter_y + 8
@@ -1810,7 +2010,7 @@ def show_normalization_summary(stdscr, normalized_tracks):
         
         # Controls footer
         footer_y = tracklist_y + 2 + min(len(normalized_tracks), max_y - tracklist_y - 12)
-        safe_addstr(stdscr, footer_y, 0, "─" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, footer_y, 0, "─" * (max_x - 1), curses.color_pair(COLOR_CYAN))
         safe_addstr(stdscr, footer_y + 1, 0, "CONTROLS:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
         safe_addstr(stdscr, footer_y + 2, 0, "  ↑/↓: Navigate   ", curses.color_pair(COLOR_WHITE))
         safe_addstr(stdscr, footer_y + 2, 20, "P", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
@@ -1849,7 +2049,11 @@ def show_normalization_summary(stdscr, normalized_tracks):
         # Handle input
         key = stdscr.getch()
         if key != -1:  # Key was pressed
-            if key in (curses.KEY_ENTER, 10, 13):
+            if key == curses.KEY_RESIZE:
+                needs_full_redraw = True
+                stdscr.clear()
+                continue
+            elif key in (curses.KEY_ENTER, 10, 13):
                 stop_preview()
                 stdscr.nodelay(False)
                 stdscr.clear()
@@ -2553,14 +2757,19 @@ def main_menu(folder):
             
             # Only draw cassette if there's enough room
             if max_y > 30:
-                draw_cassette_art(stdscr, 1, 12)
+                # Center the cassette art (width is 47 chars)
+                cassette_x = max((max_x - 47) // 2, 0)
+                draw_cassette_art(stdscr, 1, cassette_x)
                 header_y = 18
             else:
                 header_y = 0
             
-            safe_addstr(stdscr, header_y, 0, "═" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
-            safe_addstr(stdscr, header_y + 1, 20, "TAPE DECK PREP MENU", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
-            safe_addstr(stdscr, header_y + 2, 0, "═" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, header_y, 0, "═" * (max_x - 1), curses.color_pair(COLOR_CYAN))
+            # Center the menu title
+            menu_title = "TAPE DECK PREP MENU"
+            title_x = max((max_x - len(menu_title)) // 2, 0)
+            safe_addstr(stdscr, header_y + 1, title_x, menu_title, curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+            safe_addstr(stdscr, header_y + 2, 0, "═" * (max_x - 1), curses.color_pair(COLOR_CYAN))
             
             # Calculate capacity warning before displaying config
             at_capacity = total_selected_duration >= TOTAL_DURATION_MINUTES * 60
@@ -2568,7 +2777,7 @@ def main_menu(folder):
             
             # Configuration info
             config_height = draw_config_info(stdscr, header_y + 3, 2, selected_tracks=selected_tracks, show_warning=show_warning)
-            safe_addstr(stdscr, header_y + 3 + config_height, 0, "─" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, header_y + 3 + config_height, 0, "─" * (max_x - 1), curses.color_pair(COLOR_CYAN))
             
             # Playback Status Section
             playback_section_y = header_y + 3 + config_height + 2
@@ -2628,16 +2837,15 @@ def main_menu(folder):
                 level_l, level_r = 0.0, 0.0
                 safe_addstr(stdscr, meter_y, 0, "Ready to preview tracks", curses.color_pair(COLOR_WHITE))
             
-            safe_addstr(stdscr, meter_y + 2, 0, "─" * min(78, max_x - 1), curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, meter_y + 2, 0, "─" * (max_x - 1), curses.color_pair(COLOR_CYAN))
             draw_vu_meter(stdscr, meter_y + 3, 2, level_l, max_width=50, label="L")
             # dB scale between meters
             db_scale = "    -60  -40  -30  -20  -12   -6   -3    0 dB"
             safe_addstr(stdscr, meter_y + 4, 2, db_scale, curses.color_pair(COLOR_YELLOW))
             draw_vu_meter(stdscr, meter_y + 5, 2, level_r, max_width=50, label="R")
-            safe_addstr(stdscr, meter_y + 6, 0, "─" * min(78, max_x - 1), curses.color_pair(COLOR_CYAN))
+            safe_addstr(stdscr, meter_y + 6, 0, "─" * (max_x - 1), curses.color_pair(COLOR_CYAN))
             
             tracklist_y = meter_y + 8
-            safe_addstr(stdscr, tracklist_y, 0, f"TRACKS IN FOLDER ({folder}):", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
             
             # Check if preview is still playing
             if previewing_index >= 0:
@@ -2649,20 +2857,39 @@ def main_menu(folder):
                     previewing_index = -1  # Test tone ended
                     play_start_time = None
             
+            # TWO-COLUMN LAYOUT: Calculate column widths
+            # Left column: Tracks list (45% of width, min 35 chars)
+            # Right column: Selected tracks (55% of width, min 35 chars)
+            min_left_width = 35
+            min_right_width = 35
+            divider_width = 3  # Space for "│" divider
+            
+            if max_x >= min_left_width + min_right_width + divider_width:
+                # Two-column layout
+                left_col_width = int(max_x * 0.45)
+                left_col_width = max(min_left_width, min(left_col_width, max_x - min_right_width - divider_width))
+                right_col_start = left_col_width + divider_width
+                right_col_width = max_x - right_col_start - 1
+                use_two_columns = True
+            else:
+                # Fall back to single column (stacked) layout for narrow terminals
+                left_col_width = max_x - 2
+                right_col_start = 0
+                right_col_width = max_x - 2
+                use_two_columns = False
+            
             # Calculate dynamic track list size to ensure controls are always visible
             track_start_y = tracklist_y + 1
             
-            # Reserve space for: selected tracks section, footer, controls (about 15 lines minimum)
-            reserved_lines = 15
-            selected_tracks_lines = min(len(selected_tracks), 5) if selected_tracks else 0  # Max 5 selected tracks shown
-            reserved_lines += selected_tracks_lines
+            # Reserve space for controls at bottom (10 lines)
+            reserved_lines_bottom = 10
             
             # Calculate maximum visible tracks based on available terminal space
-            available_space = max_y - track_start_y - reserved_lines
+            available_space = max_y - track_start_y - reserved_lines_bottom
             max_visible_tracks = max(1, min(available_space, len(tracks)))  # Minimum 1 track, maximum available space
             
             # Check if there's enough space to render tracks list
-            has_space_for_tracks = available_space >= 1 and track_start_y < max_y - 5
+            has_space_for_tracks = available_space >= 1 and track_start_y < max_y - reserved_lines_bottom
             
             # Calculate scroll offset to keep current track visible
             if has_space_for_tracks:
@@ -2676,8 +2903,8 @@ def main_menu(folder):
             if has_space_for_tracks:
                 # Clear entire content area if scroll position changed or on full redraw
                 if scroll_offset != last_scroll_offset or needs_full_redraw:
-                    # Clear from track list all the way to bottom (tracks + selected + footer + controls)
-                    for clear_y in range(track_start_y, min(max_y - 1, track_start_y + 50)):
+                    # Clear from track list all the way to bottom
+                    for clear_y in range(tracklist_y, min(max_y - 1, track_start_y + max_visible_tracks + 15)):
                         if clear_y < max_y - 1:
                             try:
                                 stdscr.move(clear_y, 0)
@@ -2686,6 +2913,10 @@ def main_menu(folder):
                                 pass
                     last_scroll_offset = scroll_offset
                 
+                # === LEFT COLUMN: TRACKS IN FOLDER ===
+                folder_display = folder if len(folder) < left_col_width - 25 else "..." + folder[-(left_col_width - 28):]
+                safe_addstr(stdscr, tracklist_y, 0, f"TRACKS IN FOLDER ({folder_display}):", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                
                 # Show scroll indicators
                 if scroll_offset > 0:
                     safe_addstr(stdscr, track_start_y, 0, "  ↑ More tracks above...", curses.color_pair(COLOR_CYAN) | curses.A_DIM)
@@ -2693,7 +2924,7 @@ def main_menu(folder):
                 else:
                     track_display_start = track_start_y
                 
-                # Display visible tracks
+                # Display visible tracks (left column)
                 visible_end = min(scroll_offset + max_visible_tracks, len(tracks))
                 for idx, i in enumerate(range(scroll_offset, visible_end)):
                     track = tracks[i]
@@ -2721,109 +2952,117 @@ def main_menu(folder):
                         text_color = COLOR_WHITE
                         attr = 0
                     
-                    # Build track line with proper truncation
+                    # Build track line with proper truncation for left column width
                     prefix = f"{highlight_marker} {selected_marker} {i + 1:02d}. "
                     suffix = f" - {duration_str}{preview_marker}"
                     
-                    # Calculate available space for filename
-                    available_space_for_name = max_x - len(prefix) - len(suffix) - 2  # -2 for safety margin
+                    # Calculate available space for filename in left column
+                    available_space_for_name = left_col_width - len(prefix) - len(suffix) - 2
                     track_name = track['name']
                     if len(track_name) > available_space_for_name and available_space_for_name > 10:
                         track_name = track_name[:available_space_for_name - 3] + "..."
                     
                     track_line = f"{prefix}{track_name}{suffix}"
                     
-                    # Ensure entire line fits in screen width
-                    if len(track_line) > max_x - 2:
-                        track_line = track_line[:max_x - 5] + "..."
+                    # Ensure line fits in left column
+                    if len(track_line) > left_col_width:
+                        track_line = track_line[:left_col_width - 3] + "..."
                     
                     safe_addstr(stdscr, track_y, 0, track_line, curses.color_pair(text_color) | attr)
                 
                 # Show bottom scroll indicator
+                tracks_end_y = track_display_start + (visible_end - scroll_offset)
                 if visible_end < len(tracks):
-                    safe_addstr(stdscr, track_display_start + (visible_end - scroll_offset), 0, 
-                               f"  ↓ {len(tracks) - visible_end} more tracks below...", 
+                    safe_addstr(stdscr, tracks_end_y, 0, 
+                               f"  ↓ {len(tracks) - visible_end} more below...", 
                                curses.color_pair(COLOR_CYAN) | curses.A_DIM)
-                    sel_y = track_display_start + (visible_end - scroll_offset) + 2
-                else:
-                    sel_y = track_display_start + (visible_end - scroll_offset) + 1
-                if sel_y < max_y - 8:
-                    safe_addstr(stdscr, sel_y, 0, "─" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
+                    tracks_end_y += 1
+                
+                # === DIVIDER (if using two columns) ===
+                if use_two_columns:
+                    divider_x = left_col_width + 1
+                    for div_y in range(tracklist_y, tracks_end_y + 1):
+                        if div_y < max_y - 1:
+                            safe_addstr(stdscr, div_y, divider_x, "│", curses.color_pair(COLOR_CYAN))
+                    
+                    # === RIGHT COLUMN: SELECTED TRACKS ===
                     # Show playlist name if loaded from file
                     if LOADED_PLAYLIST_NAME:
-                        header_text = f"SELECTED TRACKS ({len(selected_tracks)}) - Playlist: {LOADED_PLAYLIST_NAME}"
+                        header_text = f"SELECTED ({len(selected_tracks)}) - {LOADED_PLAYLIST_NAME}"
+                        # Truncate if too long
+                        if len(header_text) > right_col_width - 2:
+                            header_text = f"SELECTED ({len(selected_tracks)})"
                     else:
-                        header_text = f"SELECTED TRACKS ({len(selected_tracks)}):"
-                    safe_addstr(stdscr, sel_y + 1, 0, header_text, curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                        header_text = f"SELECTED TRACKS ({len(selected_tracks)})"
                     
-                    # List selected tracks in order
-                    current_y = sel_y + 2
-                    for i, track in enumerate(selected_tracks):
-                        if current_y >= max_y - 6:  # Leave room for footer
-                            break
-                        duration_str = format_duration(track['duration'])
-                        track_info = f"  {i + 1:02d}. {track['name']} - {duration_str}"
-                        safe_addstr(stdscr, current_y, 0, track_info, curses.color_pair(COLOR_YELLOW))
-                        current_y += 1
+                    # Truncate header if needed
+                    if len(header_text) > right_col_width:
+                        header_text = header_text[:right_col_width - 3] + "..."
                     
-                    # Footer info with highlighting if at/over capacity or warning active
-                    footer_y = current_y + 1
-                    total_duration_str = format_duration(total_selected_duration)
-                    tape_length_str = format_duration(TOTAL_DURATION_MINUTES * 60)
+                    safe_addstr(stdscr, tracklist_y, right_col_start, header_text, curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
                     
-                    # Check if at or over capacity, or if warning is active
-                    at_capacity = total_selected_duration >= TOTAL_DURATION_MINUTES * 60
-                    show_warning = at_capacity or time.time() < capacity_warning_until
+                    # Display selected tracks in right column
+                    selected_start_y = track_start_y
+                    max_selected_display = min(len(selected_tracks), available_space)
                     
-                    safe_addstr(stdscr, footer_y, 0, "─" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
+                    if selected_tracks:
+                        for i, track in enumerate(selected_tracks[:max_selected_display]):
+                            sel_track_y = selected_start_y + i
+                            if sel_track_y >= tracks_end_y:
+                                break
+                            
+                            duration_str = format_duration(track['duration'])
+                            prefix = f"  {i + 1:02d}. "
+                            suffix = f" - {duration_str}"
+                            
+                            # Calculate available space for track name in right column
+                            available_space_for_sel_name = right_col_width - len(prefix) - len(suffix) - 2
+                            track_name = track['name']
+                            if len(track_name) > available_space_for_sel_name and available_space_for_sel_name > 10:
+                                track_name = track_name[:available_space_for_sel_name - 3] + "..."
+                            
+                            track_info = f"{prefix}{track_name}{suffix}"
+                            
+                            # Ensure line fits in right column
+                            if len(track_info) > right_col_width:
+                                track_info = track_info[:right_col_width - 3] + "..."
+                            
+                            safe_addstr(stdscr, sel_track_y, right_col_start, track_info, curses.color_pair(COLOR_YELLOW))
+                        
+                        # Show more indicator if not all selected tracks fit
+                        if len(selected_tracks) > max_selected_display:
+                            remaining = len(selected_tracks) - max_selected_display
+                            more_text = f"  +{remaining} more..."
+                            if selected_start_y + max_selected_display < max_y - 1:
+                                safe_addstr(stdscr, selected_start_y + max_selected_display, right_col_start, 
+                                          more_text, curses.color_pair(COLOR_CYAN) | curses.A_DIM)
+                    else:
+                        # No selected tracks
+                        safe_addstr(stdscr, selected_start_y, right_col_start, "  (none)", curses.color_pair(COLOR_WHITE) | curses.A_DIM)
                     
-                    # Controls
-                    controls_y = footer_y + 2
-                    safe_addstr(stdscr, controls_y, 0, "CONTROLS:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
-                    safe_addstr(stdscr, controls_y + 2, 0, "  ↑/↓:Nav  Space:Select  C:Clear  S:Save  L:Load  ", curses.color_pair(COLOR_WHITE))
-                    safe_addstr(stdscr, controls_y + 2, 50, "P", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-                    safe_addstr(stdscr, controls_y + 2, 51, ":Play  ", curses.color_pair(COLOR_WHITE))
-                    safe_addstr(stdscr, controls_y + 2, 58, "X", curses.color_pair(COLOR_RED) | curses.A_BOLD)
-                    safe_addstr(stdscr, controls_y + 2, 59, ":Stop", curses.color_pair(COLOR_WHITE))
-                    
-                    safe_addstr(stdscr, controls_y + 3, 0, "  ", curses.color_pair(COLOR_WHITE))
-                    safe_addstr(stdscr, controls_y + 3, 2, "←", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                    safe_addstr(stdscr, controls_y + 3, 3, ":Rewind 10s   ", curses.color_pair(COLOR_WHITE))
-                    safe_addstr(stdscr, controls_y + 3, 18, "→", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                    safe_addstr(stdscr, controls_y + 3, 19, ":Forward 10s", curses.color_pair(COLOR_WHITE))
-                    
-                    safe_addstr(stdscr, controls_y + 4, 0, "  ", curses.color_pair(COLOR_WHITE))
-                    safe_addstr(stdscr, controls_y + 4, 2, "[", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
-                    safe_addstr(stdscr, controls_y + 4, 3, ":Prev Track   ", curses.color_pair(COLOR_WHITE))
-                    safe_addstr(stdscr, controls_y + 4, 18, "]", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
-                    safe_addstr(stdscr, controls_y + 4, 19, ":Next Track", curses.color_pair(COLOR_WHITE))
-                    
-                    safe_addstr(stdscr, controls_y + 5, 0, "  ", curses.color_pair(COLOR_WHITE))
-                    safe_addstr(stdscr, controls_y + 5, 2, "1", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                    safe_addstr(stdscr, controls_y + 5, 3, ":400Hz  ", curses.color_pair(COLOR_WHITE))
-                    safe_addstr(stdscr, controls_y + 5, 11, "2", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                    safe_addstr(stdscr, controls_y + 5, 12, ":1kHz  ", curses.color_pair(COLOR_WHITE))
-                    safe_addstr(stdscr, controls_y + 5, 19, "3", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                    safe_addstr(stdscr, controls_y + 5, 20, ":10kHz", curses.color_pair(COLOR_WHITE))
-                    
-                    safe_addstr(stdscr, controls_y + 6, 0, "  ", curses.color_pair(COLOR_WHITE))
-                    safe_addstr(stdscr, controls_y + 6, 2, "ENTER", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-                    safe_addstr(stdscr, controls_y + 6, 7, ":Record   ", curses.color_pair(COLOR_WHITE))
-                    safe_addstr(stdscr, controls_y + 6, 18, "Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
-                    safe_addstr(stdscr, controls_y + 6, 19, ":Quit", curses.color_pair(COLOR_WHITE))
-                    
-                    safe_addstr(stdscr, controls_y + 7, 0, "  ", curses.color_pair(COLOR_WHITE))
-                    safe_addstr(stdscr, controls_y + 7, 2, "G", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
-                    safe_addstr(stdscr, controls_y + 7, 3, ":Create Profile   ", curses.color_pair(COLOR_WHITE))
-                    safe_addstr(stdscr, controls_y + 7, 21, "C", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                    safe_addstr(stdscr, controls_y + 7, 22, ":Clear All", curses.color_pair(COLOR_WHITE))
-                else:
-                    # Window too small to display selected tracks and controls properly
-                    # Show minimal message
-                    if sel_y < max_y - 2:
-                        safe_addstr(stdscr, sel_y, 0, "─" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
-                        safe_addstr(stdscr, sel_y + 1, 0, "Window too small - resize to see selected tracks and controls", 
-                                   curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                    # Show recording time summary
+                    summary_y = selected_start_y + min(len(selected_tracks), max_selected_display - 1) + 2
+                    if summary_y < max_y - reserved_lines_bottom and summary_y < tracks_end_y:
+                        total_duration_str = format_duration(total_selected_duration)
+                        tape_length_str = format_duration(TOTAL_DURATION_MINUTES * 60)
+                        
+                        at_capacity = total_selected_duration >= TOTAL_DURATION_MINUTES * 60
+                        show_warning = at_capacity or time.time() < capacity_warning_until
+                        
+                        summary_text = f"Time: {total_duration_str}/{tape_length_str}"
+                        if len(summary_text) <= right_col_width:
+                            time_color = COLOR_RED if show_warning else COLOR_CYAN
+                            time_attr = curses.A_BOLD if show_warning else 0
+                            safe_addstr(stdscr, summary_y, right_col_start, summary_text, 
+                                      curses.color_pair(time_color) | time_attr)
+                
+                # === CONTROLS (below both columns) ===
+                controls_y = max(tracks_end_y + 2, max_y - reserved_lines_bottom)
+                safe_addstr(stdscr, controls_y, 0, "─" * (max_x - 1), curses.color_pair(COLOR_CYAN))
+                safe_addstr(stdscr, controls_y + 1, 0, "CONTROLS:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 2, 0, "  ↑/↓:Nav  Space:Select  C:Clear  S:Save  L:Load  P:Play  X:Stop", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 3, 0, "  ←:Rewind 10s  →:Forward 10s  [:Prev  ]:Next  1/2/3:Tones", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 4, 0, "  ENTER:Record  G:Create Profile  Q:Quit", curses.color_pair(COLOR_WHITE))
             else:
                 # Not enough space for track list at all - show warning
                 if track_start_y < max_y - 2:
@@ -2840,7 +3079,12 @@ def main_menu(folder):
 
             key = stdscr.getch()
             if key != -1:  # Key was pressed
-                if key in (ord('q'), ord('Q')):
+                if key == curses.KEY_RESIZE:
+                    # Window was resized - force full redraw
+                    needs_full_redraw = True
+                    stdscr.clear()
+                    continue
+                elif key in (ord('q'), ord('Q')):
                     # Stop ffplay if running
                     if ffplay_proc is not None and ffplay_proc.poll() is None:
                         ffplay_proc.terminate()
@@ -2890,7 +3134,7 @@ def main_menu(folder):
                         'track_gap': TRACK_GAP_SECONDS,
                         'tape_type': TAPE_TYPE,
                         'duration': TOTAL_DURATION_MINUTES,
-                        'folder': TARGET_FOLDER,
+                        'tracks_folder': TRACKS_FOLDER,
                         'audio_latency': AUDIO_LATENCY
                     })
                     stdscr.nodelay(True)  # Return to non-blocking
@@ -3015,6 +3259,8 @@ def main_menu(folder):
                         
                         sel_key = stdscr.getch()
                         if sel_key in (ord('q'), ord('Q')):
+                            stdscr.nodelay(True)
+                            needs_full_redraw = True
                             break
                         elif sel_key == curses.KEY_UP and file_index > 0:
                             file_index -= 1
@@ -3124,6 +3370,8 @@ def main_menu(folder):
                                 safe_addstr(stdscr, max_y//2+5, max_x//2-10, "Press any key to continue", curses.color_pair(COLOR_WHITE))
                                 stdscr.refresh()
                                 stdscr.getch()
+                                stdscr.nodelay(True)
+                                needs_full_redraw = True
                                 break
                             else:
                                 # Load selected track selection
@@ -3143,6 +3391,8 @@ def main_menu(folder):
                                     safe_addstr(stdscr, max_y//2+2, max_x//2-10, "Press any key to continue", curses.color_pair(COLOR_WHITE))
                                     stdscr.refresh()
                                     stdscr.getch()
+                                    stdscr.nodelay(True)
+                                    needs_full_redraw = True
                                     break
                                 else:
                                     # Show error
@@ -3151,6 +3401,8 @@ def main_menu(folder):
                                     safe_addstr(stdscr, max_y//2+2, max_x//2-10, "Press any key to continue", curses.color_pair(COLOR_WHITE))
                                     stdscr.refresh()
                                     stdscr.getch()
+                                    stdscr.nodelay(True)
+                                    needs_full_redraw = True
                                     break
                         
                         stdscr.nodelay(True)
@@ -3294,7 +3546,7 @@ if __name__ == "__main__":
     
     # Load calibration data if in manual mode
     if COUNTER_MODE == "manual":
-        config_path = os.path.join(TARGET_FOLDER, COUNTER_CONFIG_PATH)
+        config_path = os.path.join(PROFILES_DIR, COUNTER_CONFIG_PATH)
         CALIBRATION_DATA = load_calibration_config(config_path)
         if CALIBRATION_DATA is None:
             print("\nError: Manual mode requires calibration file.")
@@ -3317,5 +3569,5 @@ if __name__ == "__main__":
     if COUNTER_MODE == "static":
         print(f"Counter Rate: {COUNTER_RATE} counts/second\n")
     
-    main_menu(TARGET_FOLDER)
+    main_menu(TRACKS_FOLDER)
 

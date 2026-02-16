@@ -40,10 +40,10 @@ Save complete deck configurations in JSON files and load them instantly. Deck pr
 **Usage:**
 ```bash
 # Load complete deck profile
-python3 decprec.py --deck-profile deck_profiles/aiwa_adf780.json --folder ./tracks
+python3 decprec.py --deck-profile deck_profiles/aiwa_adf780.json --tracks-folder ./tracks
 
 # Override specific settings
-python3 decprec.py --deck-profile deck_profiles/aiwa_adf780.json --tape-type "Type I" --folder ./tracks
+python3 decprec.py --deck-profile deck_profiles/aiwa_adf780.json --tape-type "Type I" --tracks-folder ./tracks
 ```
 
 **Profile Directory Structure:**
@@ -133,12 +133,12 @@ The script supports all four major cassette tape types with authentic technical 
 **Usage:**
 ```bash
 # Specify tape type for authentic deck simulation
-python3 decprec.py --tape-type "Type II" --folder ./tracks
+python3 decprec.py --tape-type "Type II" --tracks-folder ./tracks
 
 # Different tape lengths (per side)
-python3 decprec.py --duration 30 --folder ./tracks  # C60 (30min/side)
-python3 decprec.py --duration 45 --folder ./tracks  # C90 (45min/side) 
-python3 decprec.py --duration 60 --folder ./tracks  # C120 (60min/side)
+python3 decprec.py --duration 30 --tracks-folder ./tracks  # C60 (30min/side)
+python3 decprec.py --duration 45 --tracks-folder ./tracks  # C90 (45min/side) 
+python3 decprec.py --duration 60 --tracks-folder ./tracks  # C120 (60min/side)
 ```
 
 The script automatically displays the proper C-type indicator (C60/C90/C120) and shows tape type information in the configuration section.
@@ -284,11 +284,11 @@ python decprec.py
 ### Advanced Options
 
 ```bash
-python decprec.py --folder ./tracks --track-gap 5 --duration 60 --counter-rate 1.0 --leader-gap 10
+python decprec.py --tracks-folder ./tracks --track-gap 5 --duration 60 --counter-rate 1.0 --leader-gap 10
 ```
 
 **Arguments:**
-- `--folder PATH` - Audio tracks directory (default: `./tracks`)
+- `--tracks-folder PATH` - Audio tracks directory (default: `./tracks`)
 - `--track-gap N` - Gap between tracks in seconds (default: `5`)
 - `--duration N` - Maximum tape duration in minutes (default: `30`)
 - `--counter-mode MODE` - Counter calculation mode: `manual`, `auto`, or `static` (default: `static`)
@@ -373,7 +373,9 @@ This mode uses checkpoints you measure from your actual tape deck and interpolat
    - 30 minutes (1800s)
    - Optional: End of tape side
 5. Enter values in the wizard
-6. Configuration saved to `counter_calibration.json`
+6. Configuration saved to `profiles/counter_calibration.json`
+
+> **Note:** Calibration files are stored in the `profiles/` directory alongside your deck profiles. Track audio files are kept separate in the tracks folder (default: `./tracks`).
 
 **Example Calibration Data:**
 ```json
@@ -507,7 +509,7 @@ This ensures you always have complete visibility of your deck configuration rega
 ### Core Options
 ```bash
 # Basic usage
-python3 decprec.py --folder ~/music/mixtape
+python3 decprec.py --tracks-folder ~/music/mixtape
 
 # Audio settings
 --normalization {peak,lufs}        # Normalization method (default: lufs)
@@ -535,17 +537,17 @@ python3 decprec.py --folder ~/music/mixtape
 
 **Basic mixtape recording:**
 ```bash
-python3 decprec.py --folder ~/music/summer2024 --duration 45 --tape-type "Type II"
+python3 decprec.py --tracks-folder ~/music/summer2024 --duration 45 --tape-type "Type II"
 ```
 
 **Professional setup with LUFS and manual counter:**
 ```bash
-python3 decprec.py --folder ~/studio/album --counter-mode manual --normalization lufs --target-lufs -16.0 --audio-latency 0.2
+python3 decprec.py --tracks-folder ~/studio/album --counter-mode manual --normalization lufs --target-lufs -16.0 --audio-latency 0.2
 ```
 
 **Using deck profile with overrides:**
 ```bash
-python3 decprec.py --deck-profile deck_profiles/sony_tcwe475.json --folder ~/music --tape-type "Type I"
+python3 decprec.py --deck-profile deck_profiles/sony_tcwe475.json --tracks-folder ~/music --tape-type "Type I"
 ```
 
 **Calibrate new deck:**
@@ -740,7 +742,7 @@ python decprec.py --duration 60
 Full configuration for a C90 tape with LUFS normalization and latency compensation:
 ```bash
 python decprec.py \
-  --folder ~/tracks \
+  --tracks-folder ~/tracks \
   --duration 45 \
   --track-gap 5 \
   --leader-gap 10 \
