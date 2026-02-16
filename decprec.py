@@ -2661,161 +2661,182 @@ def main_menu(folder):
             available_space = max_y - track_start_y - reserved_lines
             max_visible_tracks = max(1, min(available_space, len(tracks)))  # Minimum 1 track, maximum available space
             
-            # Skip rendering if no space available
-            if available_space < 1 or track_start_y >= max_y - 5:
-                stdscr.refresh()
-                time.sleep(0.05)
-                continue
+            # Check if there's enough space to render tracks list
+            has_space_for_tracks = available_space >= 1 and track_start_y < max_y - 5
             
             # Calculate scroll offset to keep current track visible
-            scroll_offset = max(0, current_index - max_visible_tracks + 1)
-            if current_index < scroll_offset:
-                scroll_offset = current_index
-            
-            # Clear entire content area if scroll position changed or on full redraw
-            if scroll_offset != last_scroll_offset or needs_full_redraw:
-                # Clear from track list all the way to bottom (tracks + selected + footer + controls)
-                for clear_y in range(track_start_y, min(max_y - 1, track_start_y + 50)):
-                    if clear_y < max_y - 1:
-                        try:
-                            stdscr.move(clear_y, 0)
-                            stdscr.clrtoeol()
-                        except:
-                            pass
-                last_scroll_offset = scroll_offset
-            
-            # Show scroll indicators
-            if scroll_offset > 0:
-                safe_addstr(stdscr, track_start_y, 0, "  ↑ More tracks above...", curses.color_pair(COLOR_CYAN) | curses.A_DIM)
-                track_display_start = track_start_y + 1
+            if has_space_for_tracks:
+                scroll_offset = max(0, current_index - max_visible_tracks + 1)
+                if current_index < scroll_offset:
+                    scroll_offset = current_index
             else:
-                track_display_start = track_start_y
+                scroll_offset = 0
             
-            # Display visible tracks
-            visible_end = min(scroll_offset + max_visible_tracks, len(tracks))
-            for idx, i in enumerate(range(scroll_offset, visible_end)):
-                track = tracks[i]
-                track_y = track_display_start + idx
+            # Only render tracks if there's space, otherwise show warning
+            if has_space_for_tracks:
+                # Clear entire content area if scroll position changed or on full redraw
+                if scroll_offset != last_scroll_offset or needs_full_redraw:
+                    # Clear from track list all the way to bottom (tracks + selected + footer + controls)
+                    for clear_y in range(track_start_y, min(max_y - 1, track_start_y + 50)):
+                        if clear_y < max_y - 1:
+                            try:
+                                stdscr.move(clear_y, 0)
+                                stdscr.clrtoeol()
+                            except:
+                                pass
+                    last_scroll_offset = scroll_offset
                 
-                selected_marker = "●" if track in selected_tracks else "○"
-                highlight_marker = "▶" if i == current_index else " "
-                preview_marker = " ♪" if i == previewing_index else ""
-                duration_str = format_duration(track['duration'])
-                is_current = i == current_index
-                is_selected = track in selected_tracks
-                is_previewing = i == previewing_index
-                
-                # Use green for previewing track
-                if is_previewing:
-                    text_color = COLOR_GREEN
-                    attr = curses.A_BOLD
-                elif is_current:
-                    text_color = COLOR_YELLOW
-                    attr = curses.A_BOLD
-                elif is_selected:
-                    text_color = COLOR_CYAN
-                    attr = 0
+                # Show scroll indicators
+                if scroll_offset > 0:
+                    safe_addstr(stdscr, track_start_y, 0, "  ↑ More tracks above...", curses.color_pair(COLOR_CYAN) | curses.A_DIM)
+                    track_display_start = track_start_y + 1
                 else:
-                    text_color = COLOR_WHITE
-                    attr = 0
+                    track_display_start = track_start_y
                 
-                # Build track line with proper truncation
-                prefix = f"{highlight_marker} {selected_marker} {i + 1:02d}. "
-                suffix = f" - {duration_str}{preview_marker}"
-                
-                # Calculate available space for filename
-                available_space = max_x - len(prefix) - len(suffix) - 2  # -2 for safety margin
-                track_name = track['name']
-                if len(track_name) > available_space and available_space > 10:
-                    track_name = track_name[:available_space - 3] + "..."
-                
-                track_line = f"{prefix}{track_name}{suffix}"
-                
-                # Ensure entire line fits in screen width
-                if len(track_line) > max_x - 2:
-                    track_line = track_line[:max_x - 5] + "..."
-                
-                safe_addstr(stdscr, track_y, 0, track_line, curses.color_pair(text_color) | attr)
-            
-            # Show bottom scroll indicator
-            if visible_end < len(tracks):
-                safe_addstr(stdscr, track_display_start + (visible_end - scroll_offset), 0, 
-                           f"  ↓ {len(tracks) - visible_end} more tracks below...", 
-                           curses.color_pair(COLOR_CYAN) | curses.A_DIM)
-                sel_y = track_display_start + (visible_end - scroll_offset) + 2
-            else:
-                sel_y = track_display_start + (visible_end - scroll_offset) + 1
-            if sel_y < max_y - 8:
-                safe_addstr(stdscr, sel_y, 0, "─" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
-                # Show playlist name if loaded from file
-                if LOADED_PLAYLIST_NAME:
-                    header_text = f"SELECTED TRACKS ({len(selected_tracks)}) - Playlist: {LOADED_PLAYLIST_NAME}"
-                else:
-                    header_text = f"SELECTED TRACKS ({len(selected_tracks)}):"
-                safe_addstr(stdscr, sel_y + 1, 0, header_text, curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-                
-                # List selected tracks in order
-                current_y = sel_y + 2
-                for i, track in enumerate(selected_tracks):
-                    if current_y >= max_y - 6:  # Leave room for footer
-                        break
+                # Display visible tracks
+                visible_end = min(scroll_offset + max_visible_tracks, len(tracks))
+                for idx, i in enumerate(range(scroll_offset, visible_end)):
+                    track = tracks[i]
+                    track_y = track_display_start + idx
+                    
+                    selected_marker = "●" if track in selected_tracks else "○"
+                    highlight_marker = "▶" if i == current_index else " "
+                    preview_marker = " ♪" if i == previewing_index else ""
                     duration_str = format_duration(track['duration'])
-                    track_info = f"  {i + 1:02d}. {track['name']} - {duration_str}"
-                    safe_addstr(stdscr, current_y, 0, track_info, curses.color_pair(COLOR_YELLOW))
-                    current_y += 1
+                    is_current = i == current_index
+                    is_selected = track in selected_tracks
+                    is_previewing = i == previewing_index
+                    
+                    # Use green for previewing track
+                    if is_previewing:
+                        text_color = COLOR_GREEN
+                        attr = curses.A_BOLD
+                    elif is_current:
+                        text_color = COLOR_YELLOW
+                        attr = curses.A_BOLD
+                    elif is_selected:
+                        text_color = COLOR_CYAN
+                        attr = 0
+                    else:
+                        text_color = COLOR_WHITE
+                        attr = 0
+                    
+                    # Build track line with proper truncation
+                    prefix = f"{highlight_marker} {selected_marker} {i + 1:02d}. "
+                    suffix = f" - {duration_str}{preview_marker}"
+                    
+                    # Calculate available space for filename
+                    available_space_for_name = max_x - len(prefix) - len(suffix) - 2  # -2 for safety margin
+                    track_name = track['name']
+                    if len(track_name) > available_space_for_name and available_space_for_name > 10:
+                        track_name = track_name[:available_space_for_name - 3] + "..."
+                    
+                    track_line = f"{prefix}{track_name}{suffix}"
+                    
+                    # Ensure entire line fits in screen width
+                    if len(track_line) > max_x - 2:
+                        track_line = track_line[:max_x - 5] + "..."
+                    
+                    safe_addstr(stdscr, track_y, 0, track_line, curses.color_pair(text_color) | attr)
                 
-                # Footer info with highlighting if at/over capacity or warning active
-                footer_y = current_y + 1
-                total_duration_str = format_duration(total_selected_duration)
-                tape_length_str = format_duration(TOTAL_DURATION_MINUTES * 60)
-                
-                # Check if at or over capacity, or if warning is active
-                at_capacity = total_selected_duration >= TOTAL_DURATION_MINUTES * 60
-                show_warning = at_capacity or time.time() < capacity_warning_until
-                
-                safe_addstr(stdscr, footer_y, 0, "─" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
-                
-                # Controls
-                controls_y = footer_y + 2
-                safe_addstr(stdscr, controls_y, 0, "CONTROLS:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 2, 0, "  ↑/↓:Nav  Space:Select  C:Clear  S:Save  L:Load  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 2, 50, "P", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 2, 51, ":Play  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 2, 58, "X", curses.color_pair(COLOR_RED) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 2, 59, ":Stop", curses.color_pair(COLOR_WHITE))
-                
-                safe_addstr(stdscr, controls_y + 3, 0, "  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 3, 2, "←", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 3, 3, ":Rewind 10s   ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 3, 18, "→", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 3, 19, ":Forward 10s", curses.color_pair(COLOR_WHITE))
-                
-                safe_addstr(stdscr, controls_y + 4, 0, "  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 4, 2, "[", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 4, 3, ":Prev Track   ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 4, 18, "]", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 4, 19, ":Next Track", curses.color_pair(COLOR_WHITE))
-                
-                safe_addstr(stdscr, controls_y + 5, 0, "  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 5, 2, "1", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 5, 3, ":400Hz  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 5, 11, "2", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 5, 12, ":1kHz  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 5, 19, "3", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 5, 20, ":10kHz", curses.color_pair(COLOR_WHITE))
-                
-                safe_addstr(stdscr, controls_y + 6, 0, "  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 6, 2, "ENTER", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 6, 7, ":Record   ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 6, 18, "Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 6, 19, ":Quit", curses.color_pair(COLOR_WHITE))
-                
-                safe_addstr(stdscr, controls_y + 7, 0, "  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 7, 2, "G", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 7, 3, ":Create Profile   ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 7, 21, "C", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 7, 22, ":Clear All", curses.color_pair(COLOR_WHITE))
+                # Show bottom scroll indicator
+                if visible_end < len(tracks):
+                    safe_addstr(stdscr, track_display_start + (visible_end - scroll_offset), 0, 
+                               f"  ↓ {len(tracks) - visible_end} more tracks below...", 
+                               curses.color_pair(COLOR_CYAN) | curses.A_DIM)
+                    sel_y = track_display_start + (visible_end - scroll_offset) + 2
+                else:
+                    sel_y = track_display_start + (visible_end - scroll_offset) + 1
+                if sel_y < max_y - 8:
+                    safe_addstr(stdscr, sel_y, 0, "─" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
+                    # Show playlist name if loaded from file
+                    if LOADED_PLAYLIST_NAME:
+                        header_text = f"SELECTED TRACKS ({len(selected_tracks)}) - Playlist: {LOADED_PLAYLIST_NAME}"
+                    else:
+                        header_text = f"SELECTED TRACKS ({len(selected_tracks)}):"
+                    safe_addstr(stdscr, sel_y + 1, 0, header_text, curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                    
+                    # List selected tracks in order
+                    current_y = sel_y + 2
+                    for i, track in enumerate(selected_tracks):
+                        if current_y >= max_y - 6:  # Leave room for footer
+                            break
+                        duration_str = format_duration(track['duration'])
+                        track_info = f"  {i + 1:02d}. {track['name']} - {duration_str}"
+                        safe_addstr(stdscr, current_y, 0, track_info, curses.color_pair(COLOR_YELLOW))
+                        current_y += 1
+                    
+                    # Footer info with highlighting if at/over capacity or warning active
+                    footer_y = current_y + 1
+                    total_duration_str = format_duration(total_selected_duration)
+                    tape_length_str = format_duration(TOTAL_DURATION_MINUTES * 60)
+                    
+                    # Check if at or over capacity, or if warning is active
+                    at_capacity = total_selected_duration >= TOTAL_DURATION_MINUTES * 60
+                    show_warning = at_capacity or time.time() < capacity_warning_until
+                    
+                    safe_addstr(stdscr, footer_y, 0, "─" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
+                    
+                    # Controls
+                    controls_y = footer_y + 2
+                    safe_addstr(stdscr, controls_y, 0, "CONTROLS:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+                    safe_addstr(stdscr, controls_y + 2, 0, "  ↑/↓:Nav  Space:Select  C:Clear  S:Save  L:Load  ", curses.color_pair(COLOR_WHITE))
+                    safe_addstr(stdscr, controls_y + 2, 50, "P", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                    safe_addstr(stdscr, controls_y + 2, 51, ":Play  ", curses.color_pair(COLOR_WHITE))
+                    safe_addstr(stdscr, controls_y + 2, 58, "X", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                    safe_addstr(stdscr, controls_y + 2, 59, ":Stop", curses.color_pair(COLOR_WHITE))
+                    
+                    safe_addstr(stdscr, controls_y + 3, 0, "  ", curses.color_pair(COLOR_WHITE))
+                    safe_addstr(stdscr, controls_y + 3, 2, "←", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                    safe_addstr(stdscr, controls_y + 3, 3, ":Rewind 10s   ", curses.color_pair(COLOR_WHITE))
+                    safe_addstr(stdscr, controls_y + 3, 18, "→", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                    safe_addstr(stdscr, controls_y + 3, 19, ":Forward 10s", curses.color_pair(COLOR_WHITE))
+                    
+                    safe_addstr(stdscr, controls_y + 4, 0, "  ", curses.color_pair(COLOR_WHITE))
+                    safe_addstr(stdscr, controls_y + 4, 2, "[", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
+                    safe_addstr(stdscr, controls_y + 4, 3, ":Prev Track   ", curses.color_pair(COLOR_WHITE))
+                    safe_addstr(stdscr, controls_y + 4, 18, "]", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
+                    safe_addstr(stdscr, controls_y + 4, 19, ":Next Track", curses.color_pair(COLOR_WHITE))
+                    
+                    safe_addstr(stdscr, controls_y + 5, 0, "  ", curses.color_pair(COLOR_WHITE))
+                    safe_addstr(stdscr, controls_y + 5, 2, "1", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                    safe_addstr(stdscr, controls_y + 5, 3, ":400Hz  ", curses.color_pair(COLOR_WHITE))
+                    safe_addstr(stdscr, controls_y + 5, 11, "2", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                    safe_addstr(stdscr, controls_y + 5, 12, ":1kHz  ", curses.color_pair(COLOR_WHITE))
+                    safe_addstr(stdscr, controls_y + 5, 19, "3", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                    safe_addstr(stdscr, controls_y + 5, 20, ":10kHz", curses.color_pair(COLOR_WHITE))
+                    
+                    safe_addstr(stdscr, controls_y + 6, 0, "  ", curses.color_pair(COLOR_WHITE))
+                    safe_addstr(stdscr, controls_y + 6, 2, "ENTER", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                    safe_addstr(stdscr, controls_y + 6, 7, ":Record   ", curses.color_pair(COLOR_WHITE))
+                    safe_addstr(stdscr, controls_y + 6, 18, "Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                    safe_addstr(stdscr, controls_y + 6, 19, ":Quit", curses.color_pair(COLOR_WHITE))
+                    
+                    safe_addstr(stdscr, controls_y + 7, 0, "  ", curses.color_pair(COLOR_WHITE))
+                    safe_addstr(stdscr, controls_y + 7, 2, "G", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
+                    safe_addstr(stdscr, controls_y + 7, 3, ":Create Profile   ", curses.color_pair(COLOR_WHITE))
+                    safe_addstr(stdscr, controls_y + 7, 21, "C", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                    safe_addstr(stdscr, controls_y + 7, 22, ":Clear All", curses.color_pair(COLOR_WHITE))
+                else:
+                    # Window too small to display selected tracks and controls properly
+                    # Show minimal message
+                    if sel_y < max_y - 2:
+                        safe_addstr(stdscr, sel_y, 0, "─" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
+                        safe_addstr(stdscr, sel_y + 1, 0, "Window too small - resize to see selected tracks and controls", 
+                                   curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+            else:
+                # Not enough space for track list at all - show warning
+                if track_start_y < max_y - 2:
+                    safe_addstr(stdscr, track_start_y, 0, "Window too small - resize terminal to see tracks", 
+                               curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                    safe_addstr(stdscr, track_start_y + 1, 0, f"Need at least {min_height} lines (current: {max_y})", 
+                               curses.color_pair(COLOR_CYAN))
+            
+            # Always refresh the screen, regardless of window size
             stdscr.refresh()
+            
+            # Small delay to avoid CPU spinning
+            time.sleep(0.05)
 
             key = stdscr.getch()
             if key != -1:  # Key was pressed
