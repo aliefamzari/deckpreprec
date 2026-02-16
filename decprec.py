@@ -165,9 +165,9 @@ def get_filename_input(stdscr, prompt="Enter filename:", default_name=""):
     safe_addstr(stdscr, input_y, input_x, "Filename: ", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
     input_start_x = input_x + 10
     
-    # Show input box
-    input_box = "[" + " " * max_filename_length + "]"
-    safe_addstr(stdscr, input_y, input_start_x, input_box, curses.color_pair(COLOR_WHITE))
+    # Show input field underline
+    input_underline = "_" * max_filename_length
+    safe_addstr(stdscr, input_y + 1, input_start_x, input_underline, curses.color_pair(COLOR_CYAN))
     
     safe_addstr(stdscr, max_y - 3, 0, "─" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
     safe_addstr(stdscr, max_y - 2, 2, "ENTER: Save  ESC/Q: Cancel", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
@@ -180,21 +180,25 @@ def get_filename_input(stdscr, prompt="Enter filename:", default_name=""):
     cursor_pos = 0
     
     while True:
-        # Force clear the entire input line (prompt, box, and input)
-        stdscr.move(input_y, 0)
+        # Clear the input line completely
+        stdscr.move(input_y, input_start_x)
         stdscr.clrtoeol()
-        # Redraw prompt and box
+        
+        # Redraw prompt
         safe_addstr(stdscr, input_y, input_x, "Filename: ", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-        input_box = "[" + " " * max_filename_length + "]"
-        safe_addstr(stdscr, input_y, input_start_x, input_box, curses.color_pair(COLOR_WHITE))
-
-        # Display current filename in input box
+        
+        # Display current filename (no box, just text)
         display_text = filename[:max_filename_length]
         if display_text:
-            safe_addstr(stdscr, input_y, input_start_x + 1, display_text, curses.color_pair(COLOR_YELLOW))
+            safe_addstr(stdscr, input_y, input_start_x, display_text, curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+        
+        # Clear any remaining characters after the text
+        spaces_needed = max_filename_length - len(display_text)
+        if spaces_needed > 0:
+            safe_addstr(stdscr, input_y, input_start_x + len(display_text), " " * spaces_needed, curses.color_pair(COLOR_WHITE))
 
         # Position cursor
-        cursor_x = min(input_start_x + 1 + len(display_text), input_start_x + max_filename_length)
+        cursor_x = min(input_start_x + len(display_text), input_start_x + max_filename_length - 1)
         stdscr.move(input_y, cursor_x)
         stdscr.refresh()
 
@@ -269,6 +273,11 @@ def load_deck_profile(profile_path, args):
     except Exception as e:
         print(f"\nERROR: Failed to load deck profile: {e}\n")
         sys.exit(1)
+    
+    # Backward compatibility: handle old 'tape_duration' field
+    if 'tape_duration' in profile and 'duration' not in profile:
+        profile['duration'] = profile['tape_duration']
+    
     # Map profile keys to arg names
     mapping = {
         'counter_mode': 'counter_mode',
@@ -278,17 +287,19 @@ def load_deck_profile(profile_path, args):
         'normalization': 'normalization',
         'target_lufs': 'target_lufs',
         'tape_type': 'tape_type',
-        'deck_model': 'deck_model',
         'folder': 'folder',
         'duration': 'duration',
         'track_gap': 'track_gap',
+        'audio_latency': 'audio_latency',
     }
     for k, v in profile.items():
         if k in mapping:
             setattr(args, mapping[k], v)
+    
+    # Display profile info
     print(f"\n✓ Loaded deck profile: {profile_path}")
-    if 'deck_model' in profile:
-        print(f"  Deck: {profile['deck_model']}")
+    profile_name = profile.get('profile_name', profile.get('deck_model', os.path.basename(profile_path)))
+    print(f"  Profile: {profile_name}")
     if 'tape_type' in profile:
         print(f"  Tape: {profile['tape_type']}")
     print()
@@ -299,6 +310,7 @@ def load_profile_runtime(profile_path):
     global COUNTER_MODE, COUNTER_RATE, COUNTER_CONFIG_PATH, LEADER_GAP_SECONDS
     global NORMALIZATION_METHOD, TARGET_LUFS, TAPE_TYPE, TOTAL_DURATION_MINUTES
     global TRACK_GAP_SECONDS, TARGET_FOLDER, AUDIO_LATENCY, CALIBRATION_DATA
+    global ACTIVE_PROFILE_NAME
     
     if not os.path.isfile(profile_path):
         return False, f"Profile file '{profile_path}' not found."
@@ -308,6 +320,10 @@ def load_profile_runtime(profile_path):
             profile = json.load(f)
     except Exception as e:
         return False, f"Failed to load profile: {e}"
+    
+    # Backward compatibility: handle old 'tape_duration' field
+    if 'tape_duration' in profile and 'duration' not in profile:
+        profile['duration'] = profile['tape_duration']
     
     # Update global variables from profile
     if 'counter_mode' in profile:
@@ -338,7 +354,9 @@ def load_profile_runtime(profile_path):
         config_path = os.path.join(TARGET_FOLDER, COUNTER_CONFIG_PATH)
         CALIBRATION_DATA = load_calibration_config(config_path)
     
-    profile_name = profile.get('profile_name', os.path.basename(profile_path))
+    # Update active profile name for display
+    profile_name = profile.get('profile_name', profile.get('deck_model', os.path.basename(profile_path)))
+    ACTIVE_PROFILE_NAME = profile_name
     return True, f"Loaded profile: {profile_name}"
 
 def get_profile_files(folder="profiles"):
@@ -453,7 +471,8 @@ def create_deck_profile_wizard(stdscr, current_settings):
                 'track_gap': current_settings['track_gap'],
                 'tape_type': current_settings['tape_type'],
                 'duration': current_settings['duration'],
-                'folder': current_settings['folder']
+                'folder': current_settings['folder'],
+                'audio_latency': current_settings['audio_latency']
             })
             break
         elif key in (ord('n'), ord('N')):
@@ -475,7 +494,8 @@ def create_deck_profile_wizard(stdscr, current_settings):
                 'track_gap': current_settings['track_gap'],
                 'tape_type': current_settings['tape_type'],
                 'duration': current_settings['duration'],
-                'folder': current_settings['folder']
+                'folder': current_settings['folder'],
+                'audio_latency': current_settings['audio_latency']
             })
             break
         elif key == 27 or key in (ord('q'), ord('Q')):  # ESC or Q
@@ -556,6 +576,13 @@ args = parser.parse_args()
 # --- Deck Profile Preset Application ---
 if args.deck_profile:
     args = load_deck_profile(args.deck_profile, args)
+    # Set active profile name for display
+    try:
+        with open(args.deck_profile, 'r') as f:
+            profile_data = json.load(f)
+            ACTIVE_PROFILE_NAME = profile_data.get('profile_name', profile_data.get('deck_model', os.path.basename(args.deck_profile)))
+    except:
+        ACTIVE_PROFILE_NAME = os.path.basename(args.deck_profile)
 
 TRACK_GAP_SECONDS = args.track_gap
 TOTAL_DURATION_MINUTES = args.duration
@@ -668,6 +695,10 @@ def draw_cassette_art(stdscr, y, x):
 
 # Global calibration data loaded from config file
 CALIBRATION_DATA = None
+# Global variable to track active profile name
+ACTIVE_PROFILE_NAME = None
+# Global variable to track loaded playlist name
+LOADED_PLAYLIST_NAME = None
 
 def load_calibration_config(config_path):
     """Load manual calibration data from JSON config file"""
@@ -1058,26 +1089,37 @@ def draw_config_info(stdscr, y, x, compact=False, selected_tracks=None, show_war
         # Multi-line detailed format for main menu and preview
         safe_addstr(stdscr, y, x, "CONFIGURATION:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
         
+        # Show active profile if one is loaded
+        current_line = y + 1
+        if ACTIVE_PROFILE_NAME:
+            profile_info = f"Profile: {ACTIVE_PROFILE_NAME}"
+            safe_addstr(stdscr, current_line, x, profile_info, curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+            current_line += 1
+        
         counter_info = f"Counter: {mode_names.get(COUNTER_MODE, COUNTER_MODE)}"
         if COUNTER_MODE == "static":
             counter_info += f" ({COUNTER_RATE} counts/sec)"
         elif COUNTER_MODE == "manual" and CALIBRATION_DATA:
             deck = CALIBRATION_DATA.get('deck_model', 'Unknown')
             counter_info += f" ({deck})"
-        safe_addstr(stdscr, y + 1, x, counter_info, curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, current_line, x, counter_info, curses.color_pair(COLOR_CYAN))
+        current_line += 1
         
         # Tape type information
         tape_info = get_tape_type_info(TAPE_TYPE)
         tape_line = f"Tape: {TAPE_TYPE} - {tape_info['name']} ({tape_info['bias']})"
-        safe_addstr(stdscr, y + 2, x, tape_line, curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, current_line, x, tape_line, curses.color_pair(COLOR_CYAN))
+        current_line += 1
         
         norm_info = f"Audio: {NORMALIZATION_METHOD.upper()} normalization"
         if NORMALIZATION_METHOD == "lufs":
             norm_info += f" (target: {TARGET_LUFS:+.1f} LUFS)"
-        safe_addstr(stdscr, y + 3, x, norm_info, curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, current_line, x, norm_info, curses.color_pair(COLOR_CYAN))
+        current_line += 1
         
         timing_info = f"Timing: {LEADER_GAP_SECONDS}s leader + {TRACK_GAP_SECONDS}s gaps"
-        safe_addstr(stdscr, y + 4, x, timing_info, curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, current_line, x, timing_info, curses.color_pair(COLOR_CYAN))
+        current_line += 1
         
         # Total recording time and tape capacity (always display)
         if selected_tracks and len(selected_tracks) > 0:
@@ -1092,8 +1134,9 @@ def draw_config_info(stdscr, y, x, compact=False, selected_tracks=None, show_war
         time_color = COLOR_RED if show_warning else COLOR_CYAN
         time_attr = curses.A_BOLD | curses.A_BLINK if show_warning else 0
         
-        safe_addstr(stdscr, y + 5, x, "Total Recording Time: ", curses.color_pair(COLOR_CYAN))
-        safe_addstr(stdscr, y + 5, x + 22, format_duration(total_with_gaps), curses.color_pair(time_color) | time_attr)
+        safe_addstr(stdscr, current_line, x, "Total Recording Time: ", curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, current_line, x + 22, format_duration(total_with_gaps), curses.color_pair(time_color) | time_attr)
+        current_line += 1
         
         # Tape length with C-type indicator
         tape_type_indicator = ""
@@ -1104,16 +1147,18 @@ def draw_config_info(stdscr, y, x, compact=False, selected_tracks=None, show_war
         elif TOTAL_DURATION_MINUTES == 60:
             tape_type_indicator = " (C120)"
         
-        safe_addstr(stdscr, y + 6, x, "Tape Length: ", curses.color_pair(COLOR_CYAN))
+        safe_addstr(stdscr, current_line, x, "Tape Length: ", curses.color_pair(COLOR_CYAN))
         tape_length_text = f"{TOTAL_DURATION_MINUTES}min{tape_type_indicator}"
-        safe_addstr(stdscr, y + 6, x + 13, tape_length_text, curses.color_pair(time_color) | time_attr)
+        safe_addstr(stdscr, current_line, x + 13, tape_length_text, curses.color_pair(time_color) | time_attr)
+        current_line += 1
         
         if AUDIO_LATENCY > 0:
             latency_info = f"Audio latency compensation: {AUDIO_LATENCY}s"
-            safe_addstr(stdscr, y + 7, x, latency_info, curses.color_pair(COLOR_YELLOW))
-            return 8  # Height used
+            safe_addstr(stdscr, current_line, x, latency_info, curses.color_pair(COLOR_YELLOW))
+            current_line += 1
         
-        return 7  # Height used (always includes timing info now)
+        # Calculate height used (base y + lines added)
+        return current_line - y
 
 
 def draw_vu_meter(stdscr, y, x, level, max_width=40, label=""):
@@ -1618,11 +1663,34 @@ def show_normalization_summary(stdscr, normalized_tracks):
             preview_proc = None
             needs_full_redraw = True
         
+        # Get terminal size and check minimum requirements
+        max_y, max_x = stdscr.getmaxyx()
+        min_height = 25
+        min_width = 80
+        
+        # Check minimum terminal size
+        if max_y < min_height or max_x < min_width:
+            stdscr.clear()
+            error_msg = f"Terminal too small! Minimum size: {min_width}x{min_height}"
+            current_msg = f"Current size: {max_x}x{max_y}"
+            if max_y > 2:
+                safe_addstr(stdscr, 0, 0, error_msg, curses.color_pair(COLOR_RED) | curses.A_BOLD)
+            if max_y > 3:
+                safe_addstr(stdscr, 1, 0, current_msg, curses.color_pair(COLOR_YELLOW))
+            if max_y > 4:
+                safe_addstr(stdscr, 2, 0, "Please resize your terminal window.", curses.color_pair(COLOR_WHITE))
+            if max_y > 5:
+                safe_addstr(stdscr, 3, 0, "Press Q to cancel and return to menu.", curses.color_pair(COLOR_WHITE))
+            stdscr.refresh()
+            time.sleep(0.1)
+            key = stdscr.getch()
+            if key in (ord('q'), ord('Q')):
+                return False
+            continue
+        
         if needs_full_redraw:
             stdscr.erase()
             needs_full_redraw = False
-        
-        max_y, max_x = stdscr.getmaxyx()
         
         # Header
         safe_addstr(stdscr, 0, 0, "═" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
@@ -1645,11 +1713,19 @@ def show_normalization_summary(stdscr, normalized_tracks):
         
         # VU Meters at top (always visible)
         meter_y = playback_section_y + 2
-        # Always clear the status lines first
-        stdscr.move(meter_y, 0)
-        stdscr.clrtoeol()
-        stdscr.move(meter_y + 1, 0)
-        stdscr.clrtoeol()
+        # Always clear the status lines first (with boundary check)
+        if meter_y < max_y - 1:
+            try:
+                stdscr.move(meter_y, 0)
+                stdscr.clrtoeol()
+            except:
+                pass
+        if meter_y + 1 < max_y - 1:
+            try:
+                stdscr.move(meter_y + 1, 0)
+                stdscr.clrtoeol()
+            except:
+                pass
         
         if playing and playing_track_idx >= 0:
             # Calculate current playback position with latency compensation
@@ -2385,6 +2461,7 @@ def play_audio(path, seek_pos=0.0):
 
 
 def main_menu(folder):
+    global LOADED_PLAYLIST_NAME
     tracks = list_tracks(folder)
     if not tracks:
         print("No audio tracks found in the folder!")
@@ -2398,10 +2475,14 @@ def main_menu(folder):
 
     def draw_menu(stdscr):
         nonlocal current_index, selected_tracks, total_selected_duration, paused
-        global ffplay_proc, current_test_tone_freq
+        global ffplay_proc, current_test_tone_freq, LOADED_PLAYLIST_NAME
         init_colors()
         curses.curs_set(0)
         stdscr.nodelay(True)  # Non-blocking input for real-time updates
+        
+        # Minimum terminal size check
+        min_height = 25
+        min_width = 80
         previewing_index = -1  # Track which file is being previewed
         seek_position = 0.0  # Current seek position in seconds
         play_start_time = None  # When playback started
@@ -2448,6 +2529,24 @@ def main_menu(folder):
         while True:
             max_y, max_x = stdscr.getmaxyx()
             
+            # Check minimum terminal size
+            if max_y < min_height or max_x < min_width:
+                stdscr.clear()
+                error_msg = f"Terminal too small! Minimum size: {min_width}x{min_height}"
+                current_msg = f"Current size: {max_x}x{max_y}"
+                if max_y > 2:
+                    safe_addstr(stdscr, 0, 0, error_msg, curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                if max_y > 3:
+                    safe_addstr(stdscr, 1, 0, current_msg, curses.color_pair(COLOR_YELLOW))
+                if max_y > 4:
+                    safe_addstr(stdscr, 2, 0, "Please resize your terminal window.", curses.color_pair(COLOR_WHITE))
+                stdscr.refresh()
+                time.sleep(0.1)
+                key = stdscr.getch()
+                if key in (ord('q'), ord('Q')):
+                    return
+                continue
+            
             if needs_full_redraw:
                 stdscr.erase()
                 needs_full_redraw = False
@@ -2477,13 +2576,21 @@ def main_menu(folder):
             
             # VU Meters at top (always visible)
             meter_y = playback_section_y + 2
-            # Always clear the playing status line first
-            stdscr.move(meter_y, 0)
-            stdscr.clrtoeol()
+            # Always clear the playing status line first (with boundary check)
+            if meter_y < max_y - 1:
+                try:
+                    stdscr.move(meter_y, 0)
+                    stdscr.clrtoeol()
+                except:
+                    pass
             
             # Clear the second status line as well
-            stdscr.move(meter_y + 1, 0)
-            stdscr.clrtoeol()
+            if meter_y + 1 < max_y - 1:
+                try:
+                    stdscr.move(meter_y + 1, 0)
+                    stdscr.clrtoeol()
+                except:
+                    pass
             
             if previewing_index >= 0 and play_start_time is not None:
                 current_pos = seek_position + (time.time() - play_start_time) - AUDIO_LATENCY
@@ -2552,7 +2659,13 @@ def main_menu(folder):
             
             # Calculate maximum visible tracks based on available terminal space
             available_space = max_y - track_start_y - reserved_lines
-            max_visible_tracks = max(3, min(available_space, len(tracks)))  # Minimum 3 tracks, maximum available space
+            max_visible_tracks = max(1, min(available_space, len(tracks)))  # Minimum 1 track, maximum available space
+            
+            # Skip rendering if no space available
+            if available_space < 1 or track_start_y >= max_y - 5:
+                stdscr.refresh()
+                time.sleep(0.05)
+                continue
             
             # Calculate scroll offset to keep current track visible
             scroll_offset = max(0, current_index - max_visible_tracks + 1)
@@ -2562,12 +2675,13 @@ def main_menu(folder):
             # Clear entire content area if scroll position changed or on full redraw
             if scroll_offset != last_scroll_offset or needs_full_redraw:
                 # Clear from track list all the way to bottom (tracks + selected + footer + controls)
-                for clear_y in range(track_start_y, max_y - 1):
-                    try:
-                        stdscr.move(clear_y, 0)
-                        stdscr.clrtoeol()
-                    except:
-                        pass
+                for clear_y in range(track_start_y, min(max_y - 1, track_start_y + 50)):
+                    if clear_y < max_y - 1:
+                        try:
+                            stdscr.move(clear_y, 0)
+                            stdscr.clrtoeol()
+                        except:
+                            pass
                 last_scroll_offset = scroll_offset
             
             # Show scroll indicators
@@ -2633,7 +2747,12 @@ def main_menu(folder):
                 sel_y = track_display_start + (visible_end - scroll_offset) + 1
             if sel_y < max_y - 8:
                 safe_addstr(stdscr, sel_y, 0, "─" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
-                safe_addstr(stdscr, sel_y + 1, 0, f"SELECTED TRACKS ({len(selected_tracks)}):", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                # Show playlist name if loaded from file
+                if LOADED_PLAYLIST_NAME:
+                    header_text = f"SELECTED TRACKS ({len(selected_tracks)}) - Playlist: {LOADED_PLAYLIST_NAME}"
+                else:
+                    header_text = f"SELECTED TRACKS ({len(selected_tracks)}):"
+                safe_addstr(stdscr, sel_y + 1, 0, header_text, curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
                 
                 # List selected tracks in order
                 current_y = sel_y + 2
@@ -2719,11 +2838,13 @@ def main_menu(folder):
                     if track in selected_tracks:
                         selected_tracks.remove(track)
                         total_selected_duration -= track['duration']
+                        LOADED_PLAYLIST_NAME = None  # Clear loaded playlist name when manually modifying
                         needs_full_redraw = True
                     else:
                         if total_selected_duration + track['duration'] + TRACK_GAP_SECONDS <= TOTAL_DURATION_MINUTES * 60:
                             selected_tracks.append(track)
                             total_selected_duration += track['duration']
+                            LOADED_PLAYLIST_NAME = None  # Clear loaded playlist name when manually modifying
                             needs_full_redraw = True
                         else:
                             # Track exceeded capacity - show warning for 2 seconds
@@ -2733,6 +2854,7 @@ def main_menu(folder):
                     if selected_tracks:
                         selected_tracks.clear()
                         total_selected_duration = 0
+                        LOADED_PLAYLIST_NAME = None  # Clear loaded playlist name
                         needs_full_redraw = True
                 elif key in (ord('g'), ord('G')):
                     # Create deck profile
@@ -2747,7 +2869,8 @@ def main_menu(folder):
                         'track_gap': TRACK_GAP_SECONDS,
                         'tape_type': TAPE_TYPE,
                         'duration': TOTAL_DURATION_MINUTES,
-                        'folder': TARGET_FOLDER
+                        'folder': TARGET_FOLDER,
+                        'audio_latency': AUDIO_LATENCY
                     })
                     stdscr.nodelay(True)  # Return to non-blocking
                     needs_full_redraw = True
@@ -2988,6 +3111,8 @@ def main_menu(folder):
                                     selected_tracks.clear()
                                     selected_tracks.extend(loaded_tracks)
                                     total_selected_duration = sum(track['duration'] for track in selected_tracks)
+                                    # Store the playlist name (filename without path and extension)
+                                    LOADED_PLAYLIST_NAME = os.path.splitext(os.path.basename(files_to_use[file_index]))[0]
                                     
                                     # Show load result
                                     stdscr.clear()
