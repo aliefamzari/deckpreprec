@@ -228,7 +228,7 @@ def get_filename_input(stdscr, prompt="Enter filename:", default_name=""):
     # Clean up filename
     filename = filename.strip()
     if not filename:
-        return None  # Use auto-generated name
+        return ""  # Empty string means use auto-generated name
     
     # Remove any existing .json extension to avoid double extension
     if filename.lower().endswith('.json'):
@@ -397,30 +397,44 @@ def create_deck_profile_wizard(stdscr, current_settings):
     profile_data = {}
     
     # Step 1: Profile Name
-    safe_addstr(stdscr, 6, 2, "Profile Name: ", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+    safe_addstr(stdscr, 6, 2, "Profile Name:", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
     safe_addstr(stdscr, 7, 2, "(This will be used as the filename)", curses.color_pair(COLOR_YELLOW))
     
     profile_name = ""
-    input_y = 8
+    input_y = 9
     input_x = 2
-    max_name_length = 40
+    max_name_length = 50
     
-    safe_addstr(stdscr, input_y, input_x, "Name: ", curses.color_pair(COLOR_WHITE))
+    safe_addstr(stdscr, input_y, input_x, "Name: ", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
     input_start_x = input_x + 6
     
-    input_box = "[" + "" * max_name_length + "]"
-    safe_addstr(stdscr, input_y, input_start_x, input_box, curses.color_pair(COLOR_WHITE))
+    # Show input field underline
+    input_underline = "_" * max_name_length
+    safe_addstr(stdscr, input_y + 1, input_start_x, input_underline, curses.color_pair(COLOR_CYAN))
+    
+    safe_addstr(stdscr, max_y - 3, 0, "─" * min(78, max_x - 2), curses.color_pair(COLOR_CYAN))
+    safe_addstr(stdscr, max_y - 2, 2, "ENTER: Continue  ESC/Q: Cancel", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
     
     while True:
-        # Clear and display current name
-        clear_text = "" * max_name_length
-        safe_addstr(stdscr, input_y, input_start_x + 1, clear_text, curses.color_pair(COLOR_WHITE))
+        # Clear the input line completely
+        stdscr.move(input_y, input_start_x)
+        stdscr.clrtoeol()
         
-        if profile_name:
-            display_text = profile_name[:max_name_length]
-            safe_addstr(stdscr, input_y, input_start_x + 1, display_text, curses.color_pair(COLOR_YELLOW))
+        # Redraw prompt
+        safe_addstr(stdscr, input_y, input_x, "Name: ", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
         
-        cursor_x = min(input_start_x + 1 + len(profile_name), input_start_x + max_name_length)
+        # Display current profile name (no box, just text)
+        display_text = profile_name[:max_name_length]
+        if display_text:
+            safe_addstr(stdscr, input_y, input_start_x, display_text, curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+        
+        # Clear any remaining characters after the text
+        spaces_needed = max_name_length - len(display_text)
+        if spaces_needed > 0:
+            safe_addstr(stdscr, input_y, input_start_x + len(display_text), " " * spaces_needed, curses.color_pair(COLOR_WHITE))
+        
+        # Position cursor
+        cursor_x = min(input_start_x + len(display_text), input_start_x + max_name_length - 1)
         stdscr.move(input_y, cursor_x)
         stdscr.refresh()
         
@@ -433,11 +447,12 @@ def create_deck_profile_wizard(stdscr, current_settings):
             curses.curs_set(0)
             stdscr.nodelay(True)
             return False
-        elif key == curses.KEY_BACKSPACE or key == 8 or key == 127:
+        elif key in (curses.KEY_BACKSPACE, 8, 127, 263):
             if profile_name:
                 profile_name = profile_name[:-1]
-        elif key >= 32 and key <= 126 and len(profile_name) < max_name_length:
+        elif 32 <= key <= 126 and len(profile_name) < max_name_length:
             char = chr(key)
+            # Only allow alphanumeric, underscore, hyphen, space
             if char.isalnum() or char in "_- ":
                 profile_name += char
     
@@ -2245,52 +2260,87 @@ def prep_countdown(stdscr, seconds=10):
     }
     
     stdscr.nodelay(True)
-    max_y, max_x = stdscr.getmaxyx()
+    min_height = 25
+    min_width = 60
+    needs_redraw = True
     
     for s in range(seconds, 0, -1):
-        # Aggressive clearing
-        stdscr.erase()
-        stdscr.clear()
-        stdscr.refresh()
-        
-        countdown_y = max_y // 2 - 6
-        
-        # Draw title
-        title_str = "DECK PREP COUNTDOWN"
-        title_x = max(0, (max_x - len(title_str)) // 2)
-        safe_addstr(stdscr, countdown_y, title_x, title_str, curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
-        
-        # Draw big number
-        num_str = f"{s:02d}"
-        num_lines = big_numbers[num_str[0]]
-        total_width = len(num_lines[0]) * 2 + 3  # Two digits + spacing
-        start_x = max(0, (max_x - total_width) // 2)
-        
-        for i, line in enumerate(num_lines):
-            y_pos = countdown_y + 2 + i
-            # Draw first digit
-            safe_addstr(stdscr, y_pos, start_x, line, curses.color_pair(COLOR_YELLOW) | curses.A_BOLD | curses.A_BLINK)
-            # Draw second digit
-            safe_addstr(stdscr, y_pos, start_x + len(line) + 3, big_numbers[num_str[1]][i], curses.color_pair(COLOR_YELLOW) | curses.A_BOLD | curses.A_BLINK)
-        
-        # Important instruction
-        important_str = "PRESS RECORD ON YOUR DECK WHEN COUNTDOWN HITS 0"
-        important_x = max(0, (max_x - len(important_str)) // 2)
-        safe_addstr(stdscr, countdown_y + 11, important_x, important_str, curses.color_pair(COLOR_RED) | curses.A_BOLD | curses.A_BLINK)
-        
-        # Instructions
-        instr_str = "Press Q to cancel and return to menu."
-        instr_x = max(0, (max_x - len(instr_str)) // 2)
-        safe_addstr(stdscr, countdown_y + 13, instr_x, instr_str, curses.color_pair(COLOR_WHITE))
-        stdscr.refresh()
-        # allow immediate cancel
-        for _ in range(10):
+        # Check terminal size and redraw as needed during countdown
+        for tenth in range(10):
+            max_y, max_x = stdscr.getmaxyx()
+            
+            # Check minimum terminal size
+            if max_y < min_height or max_x < min_width:
+                if needs_redraw:
+                    stdscr.clear()
+                    error_msg = f"Terminal too small! Minimum: {min_width}x{min_height}"
+                    current_msg = f"Current: {max_x}x{max_y}"
+                    if max_y > 2:
+                        safe_addstr(stdscr, 0, 0, error_msg, curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                    if max_y > 3:
+                        safe_addstr(stdscr, 1, 0, current_msg, curses.color_pair(COLOR_YELLOW))
+                    if max_y > 4:
+                        safe_addstr(stdscr, 2, 0, "Please resize your terminal window.", curses.color_pair(COLOR_WHITE))
+                    stdscr.refresh()
+                    needs_redraw = False
+                
+                key = stdscr.getch()
+                if key == curses.KEY_RESIZE:
+                    needs_redraw = True
+                elif key in (ord('q'), ord('Q')):
+                    stdscr.nodelay(False)
+                    stdscr.clear()
+                    return False
+                time.sleep(0.1)
+                continue
+            
+            # Redraw countdown display if needed
+            if needs_redraw or tenth == 0:
+                stdscr.erase()
+                
+                countdown_y = max_y // 2 - 6
+                
+                # Draw title
+                title_str = "DECK PREP COUNTDOWN"
+                title_x = max(0, (max_x - len(title_str)) // 2)
+                safe_addstr(stdscr, countdown_y, title_x, title_str, curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+                
+                # Draw big number
+                num_str = f"{s:02d}"
+                num_lines = big_numbers[num_str[0]]
+                total_width = len(num_lines[0]) * 2 + 3  # Two digits + spacing
+                start_x = max(0, (max_x - total_width) // 2)
+                
+                for i, line in enumerate(num_lines):
+                    y_pos = countdown_y + 2 + i
+                    # Draw first digit
+                    safe_addstr(stdscr, y_pos, start_x, line, curses.color_pair(COLOR_YELLOW) | curses.A_BOLD | curses.A_BLINK)
+                    # Draw second digit
+                    safe_addstr(stdscr, y_pos, start_x + len(line) + 3, big_numbers[num_str[1]][i], curses.color_pair(COLOR_YELLOW) | curses.A_BOLD | curses.A_BLINK)
+                
+                # Important instruction
+                important_str = "PRESS RECORD ON YOUR DECK WHEN COUNTDOWN HITS 0"
+                important_x = max(0, (max_x - len(important_str)) // 2)
+                safe_addstr(stdscr, countdown_y + 11, important_x, important_str, curses.color_pair(COLOR_RED) | curses.A_BOLD | curses.A_BLINK)
+                
+                # Instructions
+                instr_str = "Press Q to cancel and return to menu."
+                instr_x = max(0, (max_x - len(instr_str)) // 2)
+                safe_addstr(stdscr, countdown_y + 13, instr_x, instr_str, curses.color_pair(COLOR_WHITE))
+                stdscr.refresh()
+                needs_redraw = False
+            
+            # Check for user input
             key = stdscr.getch()
-            if key in (ord('q'), ord('Q')):
+            if key == curses.KEY_RESIZE:
+                needs_redraw = True
+            elif key in (ord('q'), ord('Q')):
                 stdscr.nodelay(False)
                 stdscr.clear()
                 return False
+            
             time.sleep(0.1)
+    
     stdscr.nodelay(False)
     stdscr.clear()
     return True
@@ -2298,6 +2348,8 @@ def prep_countdown(stdscr, seconds=10):
 
 def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration, leader_gap):
     stdscr.clear()
+    min_height = 30
+    min_width = 80
     total_tracks = len(normalized_tracks)
     total_time = leader_gap + sum(int(round(t['audio'].duration_seconds)) for t in normalized_tracks) + (track_gap * (total_tracks - 1))
 
@@ -2331,13 +2383,42 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             if leader_elapsed >= leader_gap:
                 break
             
-            # Only redraw if counter changed
-            if current_counter == last_leader_counter and not first_leader_draw:
-                time.sleep(0.05)
+            # Get terminal size every iteration
+            max_y, max_x = stdscr.getmaxyx()
+            
+            # Check minimum terminal size
+            if max_y < min_height or max_x < min_width:
+                stdscr.clear()
+                error_msg = f"Terminal too small! Minimum: {min_width}x{min_height}"
+                current_msg = f"Current: {max_x}x{max_y}"
+                if max_y > 2:
+                    safe_addstr(stdscr, 0, 0, error_msg, curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                if max_y > 3:
+                    safe_addstr(stdscr, 1, 0, current_msg, curses.color_pair(COLOR_YELLOW))
+                if max_y > 4:
+                    safe_addstr(stdscr, 2, 0, "Please resize your terminal window.", curses.color_pair(COLOR_WHITE))
+                stdscr.refresh()
+                time.sleep(0.1)
                 key = stdscr.getch()
-                if key in (ord('q'), ord('Q')):
+                if key == curses.KEY_RESIZE:
+                    first_leader_draw = True
+                elif key in (ord('q'), ord('Q')):
                     quit_to_menu = True
                     break
+                continue
+            
+            # Check for resize event
+            key = stdscr.getch()
+            if key == curses.KEY_RESIZE:
+                first_leader_draw = True
+                last_leader_counter = -1  # Force redraw
+            elif key in (ord('q'), ord('Q')):
+                quit_to_menu = True
+                break
+            
+            # Only redraw if counter changed or resize
+            if current_counter == last_leader_counter and not first_leader_draw:
+                time.sleep(0.05)
                 continue
             
             last_leader_counter = current_counter
@@ -2346,7 +2427,6 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
                 first_leader_draw = False
             
             # Draw large tape counter
-            max_y, max_x = stdscr.getmaxyx()
             counter_str = f"{current_counter:04d}"
             
             # Digital 7-segment style numbers for tape counter
@@ -2433,6 +2513,44 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             track_elapsed = now - track_start_time
             current_counter = calculate_tape_counter(elapsed)
             current_progress = int(60 * (track_elapsed / max(1, track_duration)))
+            
+            # Get terminal size every iteration
+            max_y, max_x = stdscr.getmaxyx()
+            
+            # Check minimum terminal size
+            if max_y < min_height or max_x < min_width:
+                stdscr.clear()
+                error_msg = f"Terminal too small! Minimum: {min_width}x{min_height}"
+                current_msg = f"Current: {max_x}x{max_y}"
+                if max_y > 2:
+                    safe_addstr(stdscr, 0, 0, error_msg, curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                if max_y > 3:
+                    safe_addstr(stdscr, 1, 0, current_msg, curses.color_pair(COLOR_YELLOW))
+                if max_y > 4:
+                    safe_addstr(stdscr, 2, 0, "Please resize your terminal window.", curses.color_pair(COLOR_WHITE))
+                stdscr.refresh()
+                time.sleep(0.05)
+                key = stdscr.getch()
+                if key == curses.KEY_RESIZE:
+                    first_draw = True
+                elif key in (ord('q'), ord('Q')):
+                    if proc.poll() is None:
+                        proc.terminate()
+                    quit_to_menu = True
+                    break
+                continue
+            
+            # Check for keyboard input
+            key = stdscr.getch()
+            if key == curses.KEY_RESIZE:
+                first_draw = True
+                last_counter = -1
+                last_progress = -1
+            elif key in (ord('q'), ord('Q')):
+                if proc.poll() is None:
+                    proc.terminate()
+                quit_to_menu = True
+                break
             
             # Check if we need to redraw static elements
             counter_changed = current_counter != last_counter
@@ -2571,12 +2689,6 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             last_counter = current_counter
             last_progress = current_progress
             
-            key = stdscr.getch()
-            if key in (ord('q'), ord('Q')):
-                if proc.poll() is None:
-                    proc.terminate()
-                quit_to_menu = True
-                break
             if proc.poll() is not None:
                 break
             time.sleep(0.05)  # Reduced from 0.1 to make VU meters more responsive
@@ -3060,9 +3172,45 @@ def main_menu(folder):
                 controls_y = max(tracks_end_y + 2, max_y - reserved_lines_bottom)
                 safe_addstr(stdscr, controls_y, 0, "─" * (max_x - 1), curses.color_pair(COLOR_CYAN))
                 safe_addstr(stdscr, controls_y + 1, 0, "CONTROLS:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 2, 0, "  ↑/↓:Nav  Space:Select  C:Clear  S:Save  L:Load  P:Play  X:Stop", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 3, 0, "  ←:Rewind 10s  →:Forward 10s  [:Prev  ]:Next  1/2/3:Tones", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 4, 0, "  ENTER:Record  G:Create Profile  Q:Quit", curses.color_pair(COLOR_WHITE))
+                
+                # Line 1: Navigation and selection
+                safe_addstr(stdscr, controls_y + 2, 0, "  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 2, 2, "↑/↓", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 2, 5, ":Nav  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 2, 11, "Space", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 2, 16, ":Select  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 2, 25, "C", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 2, 26, ":Clear  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 2, 34, "S", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 2, 35, ":Save  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 2, 42, "L", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 2, 43, ":Load  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 2, 50, "P", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 2, 51, ":Play  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 2, 58, "X", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 2, 59, ":Stop", curses.color_pair(COLOR_WHITE))
+                
+                # Line 2: Playback controls and test tones
+                safe_addstr(stdscr, controls_y + 3, 0, "  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 3, 2, "←", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 3, 3, ":Rewind 10s  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 3, 16, "→", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 3, 17, ":Forward 10s  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 3, 31, "[", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 3, 32, ":Prev  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 3, 39, "]", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 3, 40, ":Next  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 3, 47, "1/2/3", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 3, 52, ":Tones", curses.color_pair(COLOR_WHITE))
+                
+                # Line 3: Main actions
+                safe_addstr(stdscr, controls_y + 4, 0, "  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 4, 2, "ENTER", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 4, 7, ":Record  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 4, 16, "G", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 4, 17, ":Create Profile  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 4, 34, "Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 4, 35, ":Quit", curses.color_pair(COLOR_WHITE))
             else:
                 # Not enough space for track list at all - show warning
                 if track_start_y < max_y - 2:
@@ -3144,16 +3292,20 @@ def main_menu(folder):
                     if selected_tracks:
                         # Get custom filename from user
                         custom_filename = get_filename_input(stdscr, "Enter filename for track selection:")
-                        filename = save_track_selection(selected_tracks, folder, custom_filename)
-                        if filename:
-                            # Show success message briefly
-                            stdscr.nodelay(False)
-                            stdscr.clear()
-                            safe_addstr(stdscr, max_y//2, max_x//2-15, f"Saved: {filename}", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-                            safe_addstr(stdscr, max_y//2+1, max_x//2-10, "Press any key to continue", curses.color_pair(COLOR_WHITE))
-                            stdscr.refresh()
-                            stdscr.getch()
-                            stdscr.nodelay(True)
+                        # Only save if user didn't cancel (None means canceled, "" means auto-generate)
+                        if custom_filename is not None:
+                            # Convert empty string to None for auto-generation
+                            filename_to_use = custom_filename if custom_filename else None
+                            filename = save_track_selection(selected_tracks, folder, filename_to_use)
+                            if filename:
+                                # Show success message briefly
+                                stdscr.nodelay(False)
+                                stdscr.clear()
+                                safe_addstr(stdscr, max_y//2, max_x//2-15, f"Saved: {filename}", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                                safe_addstr(stdscr, max_y//2+1, max_x//2-10, "Press any key to continue", curses.color_pair(COLOR_WHITE))
+                                stdscr.refresh()
+                                stdscr.getch()
+                                stdscr.nodelay(True)
                         needs_full_redraw = True
                 elif key in (ord('l'), ord('L')):
                     # Load track selection or profile - show selection menu
