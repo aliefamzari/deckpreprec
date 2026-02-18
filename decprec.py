@@ -2993,8 +2993,8 @@ def main_menu(folder):
             # Calculate dynamic track list size to ensure controls are always visible
             track_start_y = tracklist_y + 1
             
-            # Reserve space for controls at bottom (10 lines)
-            reserved_lines_bottom = 10
+            # Reserve space for controls at bottom (13 lines: separator + header + 6 control lines + 3 padding)
+            reserved_lines_bottom = 13
             
             # Calculate maximum visible tracks based on available terminal space
             available_space = max_y - track_start_y - reserved_lines_bottom
@@ -3173,44 +3173,55 @@ def main_menu(folder):
                 safe_addstr(stdscr, controls_y, 0, "─" * (max_x - 1), curses.color_pair(COLOR_CYAN))
                 safe_addstr(stdscr, controls_y + 1, 0, "CONTROLS:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
                 
-                # Line 1: Navigation and selection
-                safe_addstr(stdscr, controls_y + 2, 0, "  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 2, 2, "↑/↓", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 2, 5, ":Nav  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 2, 11, "Space", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 2, 16, ":Select  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 2, 25, "C", curses.color_pair(COLOR_RED) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 2, 26, ":Clear  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 2, 34, "S", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 2, 35, ":Save  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 2, 42, "L", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 2, 43, ":Load  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 2, 50, "P", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 2, 51, ":Play  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 2, 58, "X", curses.color_pair(COLOR_RED) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 2, 59, ":Stop", curses.color_pair(COLOR_WHITE))
+                # Line 1: Navigation, selection, and playback basics
+                safe_addstr(stdscr, controls_y + 2, 0, "  ↑/↓: Navigate   ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 2, 20, "Space", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 2, 25, ": Select   ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 2, 36, "P", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 2, 37, ": Play   ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 2, 46, "X", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 2, 47, ": Stop", curses.color_pair(COLOR_WHITE))
                 
-                # Line 2: Playback controls and test tones
+                # Line 2: Seek controls
                 safe_addstr(stdscr, controls_y + 3, 0, "  ", curses.color_pair(COLOR_WHITE))
                 safe_addstr(stdscr, controls_y + 3, 2, "←", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 3, 3, ":Rewind 10s  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 3, 16, "→", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 3, 17, ":Forward 10s  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 3, 31, "[", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 3, 32, ":Prev  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 3, 39, "]", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 3, 40, ":Next  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 3, 47, "1/2/3", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 3, 52, ":Tones", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 3, 3, ": Rewind 10s   ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 3, 20, "→", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 3, 21, ": Forward 10s", curses.color_pair(COLOR_WHITE))
                 
-                # Line 3: Main actions
+                # Line 3: Track jump controls
                 safe_addstr(stdscr, controls_y + 4, 0, "  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 4, 2, "ENTER", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 4, 7, ":Record  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 4, 16, "G", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 4, 17, ":Create Profile  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 4, 34, "Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 4, 35, ":Quit", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 4, 2, "[", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 4, 3, ": Prev Track   ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 4, 20, "]", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 4, 21, ": Next Track", curses.color_pair(COLOR_WHITE))
+                
+                # Line 4: Test tones
+                safe_addstr(stdscr, controls_y + 5, 0, "  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 5, 2, "1", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 5, 3, ": 400Hz   ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 5, 13, "2", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 5, 14, ": 1kHz   ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 5, 23, "3", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 5, 24, ": 10kHz", curses.color_pair(COLOR_WHITE))
+                
+                # Line 5: List management controls
+                safe_addstr(stdscr, controls_y + 6, 0, "  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 6, 2, "C", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 6, 3, ": Clear All   ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 6, 20, "S", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 6, 21, ": Save   ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 6, 30, "L", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 6, 31, ": Load", curses.color_pair(COLOR_WHITE))
+                
+                # Line 6: Main actions
+                safe_addstr(stdscr, controls_y + 7, 0, "  ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 7, 2, "ENTER", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 7, 7, ": Start Recording   ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 7, 27, "G", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 7, 28, ": Create Profile   ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 7, 47, "Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 7, 48, ": Quit", curses.color_pair(COLOR_WHITE))
             else:
                 # Not enough space for track list at all - show warning
                 if track_start_y < max_y - 2:
