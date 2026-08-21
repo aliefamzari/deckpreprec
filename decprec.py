@@ -15,7 +15,7 @@ Features:
     - Auto Physics: Realistic reel simulation with non-linear rates
     - Static Linear: Constant rate throughout tape
   • Real-time VU meters with dBFS scale and actual waveform analysis (L/R channels)
-  • Test tone generator (400Hz, 1kHz, 10kHz) for level calibration
+    • Test tone generator (400Hz, 1kHz, 10kHz, 15kHz) for level calibration
   • Interactive track selection with capacity validation and duration warnings
   • Pre-analyzed audio with RMS-based level detection and preview capability
   • Configurable leader gaps, track gaps, and tape types (I, II, IV) - informational display only
@@ -52,7 +52,7 @@ Keyboard Controls:
     X             Stop preview and reset position
     S             Save current track selection to file
     L             Load track selection from file
-    1/2/3         Play test tones (400Hz/1kHz/10kHz)
+    1/2/3/4       Play test tones (400Hz/1kHz/10kHz/15kHz)
     ←/→, H/L      Rewind/forward 10 seconds during preview
     [/]           Jump to previous/next track and play
     Enter         Start normalization/recording process
@@ -1993,13 +1993,15 @@ def show_normalization_summary(stdscr, normalized_tracks):
         elif playing and playing_track_idx == -2:
             # Test tone is playing
             current_pos = time.time() - play_start_time if play_start_time else 0
-            tone_duration = 30.0
+            tone_duration = TEST_TONE_DURATION_SECONDS
             
             freq_display = f"{current_test_tone_freq}Hz" if current_test_tone_freq else "Test Tone"
             if current_test_tone_freq == 1000:
                 freq_display = "1kHz"
             elif current_test_tone_freq == 10000:
                 freq_display = "10kHz"
+            elif current_test_tone_freq == 15000:
+                freq_display = "15kHz"
             status_text = f"NOW PLAYING: Test Tone {freq_display}"
             position_text = f"Position: {format_duration(current_pos)} / {format_duration(tone_duration)}"
             safe_addstr(stdscr, meter_y, 0, status_text, curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
@@ -2084,7 +2086,9 @@ def show_normalization_summary(stdscr, normalized_tracks):
         safe_addstr(stdscr, footer_y + 5, 13, "2", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
         safe_addstr(stdscr, footer_y + 5, 14, ": 1kHz   ", curses.color_pair(COLOR_WHITE))
         safe_addstr(stdscr, footer_y + 5, 23, "3", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 5, 24, ": 10kHz", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 5, 24, ": 10kHz   ", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 5, 33, "4", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+        safe_addstr(stdscr, footer_y + 5, 34, ": 15kHz", curses.color_pair(COLOR_WHITE))
         
         safe_addstr(stdscr, footer_y + 6, 0, "  ", curses.color_pair(COLOR_WHITE))
         safe_addstr(stdscr, footer_y + 6, 2, "ENTER", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
@@ -2168,7 +2172,7 @@ def show_normalization_summary(stdscr, normalized_tracks):
             elif key == ord('1'):
                 # Play 400Hz test tone
                 stop_preview()
-                if play_test_tone(400, 30.0):
+                if play_test_tone(400, TEST_TONE_DURATION_SECONDS):
                     current_test_tone_freq = 400
                     playing_track_idx = -2  # Special marker for test tone
                     playing = True
@@ -2177,7 +2181,7 @@ def show_normalization_summary(stdscr, normalized_tracks):
             elif key == ord('2'):
                 # Play 1kHz test tone
                 stop_preview()
-                if play_test_tone(1000, 30.0):
+                if play_test_tone(1000, TEST_TONE_DURATION_SECONDS):
                     current_test_tone_freq = 1000
                     playing_track_idx = -2  # Special marker for test tone
                     playing = True
@@ -2186,8 +2190,17 @@ def show_normalization_summary(stdscr, normalized_tracks):
             elif key == ord('3'):
                 # Play 10kHz test tone
                 stop_preview()
-                if play_test_tone(10000, 30.0):
+                if play_test_tone(10000, TEST_TONE_DURATION_SECONDS):
                     current_test_tone_freq = 10000
+                    playing_track_idx = -2  # Special marker for test tone
+                    playing = True
+                    play_start_time = time.time()
+                    preview_proc = ffplay_proc  # Use the global ffplay_proc
+            elif key == ord('4'):
+                # Play 15kHz test tone
+                stop_preview()
+                if play_test_tone(15000, TEST_TONE_DURATION_SECONDS):
+                    current_test_tone_freq = 15000
                     playing_track_idx = -2  # Special marker for test tone
                     playing = True
                     play_start_time = time.time()
@@ -2751,7 +2764,9 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
     stdscr.clear()
 
 
-def generate_test_tone(frequency_hz, duration_seconds=30.0):
+TEST_TONE_DURATION_SECONDS = 120.0
+
+def generate_test_tone(frequency_hz, duration_seconds=TEST_TONE_DURATION_SECONDS):
     """Generate a test tone at specified frequency and return temporary file path."""
     # Generate sine wave
     tone = Sine(frequency_hz).to_audio_segment(duration=duration_seconds * 1000)  # duration in ms
@@ -2766,7 +2781,7 @@ def generate_test_tone(frequency_hz, duration_seconds=30.0):
     
     return temp_path
 
-def play_test_tone(frequency_hz, duration_seconds=30.0):
+def play_test_tone(frequency_hz, duration_seconds=TEST_TONE_DURATION_SECONDS):
     """Generate and play a test tone at specified frequency."""
     try:
         tone_path = generate_test_tone(frequency_hz, duration_seconds)
@@ -2962,13 +2977,15 @@ def main_menu(folder):
             elif previewing_index == -2 and play_start_time is not None:
                 # Test tone is playing
                 current_pos = time.time() - play_start_time
-                tone_duration = 30.0
+                tone_duration = TEST_TONE_DURATION_SECONDS
                 
                 freq_display = f"{current_test_tone_freq}Hz" if current_test_tone_freq else "Test Tone"
                 if current_test_tone_freq == 1000:
                     freq_display = "1kHz"
                 elif current_test_tone_freq == 10000:
                     freq_display = "10kHz"
+                elif current_test_tone_freq == 15000:
+                    freq_display = "15kHz"
                 status_text = f"NOW PLAYING: Test Tone {freq_display}"
                 position_text = f"Position: {format_duration(current_pos)} / {format_duration(tone_duration)}"
                 safe_addstr(stdscr, meter_y, 0, status_text, curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
@@ -3234,7 +3251,9 @@ def main_menu(folder):
                 safe_addstr(stdscr, controls_y + 5, 13, "2", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
                 safe_addstr(stdscr, controls_y + 5, 14, ": 1kHz   ", curses.color_pair(COLOR_WHITE))
                 safe_addstr(stdscr, controls_y + 5, 23, "3", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 5, 24, ": 10kHz", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 5, 24, ": 10kHz   ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 5, 33, "4", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 5, 34, ": 15kHz", curses.color_pair(COLOR_WHITE))
                 
                 # Line 5: List management controls
                 safe_addstr(stdscr, controls_y + 6, 0, "  ", curses.color_pair(COLOR_WHITE))
@@ -3682,22 +3701,29 @@ def main_menu(folder):
                 elif key == ord('1'):
                     # Play 400Hz test tone
                     stop_preview()
-                    if play_test_tone(400, 30.0):
+                    if play_test_tone(400, TEST_TONE_DURATION_SECONDS):
                         current_test_tone_freq = 400
                         previewing_index = -2  # Special marker for test tone
                         play_start_time = time.time()
                 elif key == ord('2'):
                     # Play 1kHz test tone
                     stop_preview()
-                    if play_test_tone(1000, 30.0):
+                    if play_test_tone(1000, TEST_TONE_DURATION_SECONDS):
                         current_test_tone_freq = 1000
                         previewing_index = -2  # Special marker for test tone
                         play_start_time = time.time()
                 elif key == ord('3'):
                     # Play 10kHz test tone
                     stop_preview()
-                    if play_test_tone(10000, 30.0):
+                    if play_test_tone(10000, TEST_TONE_DURATION_SECONDS):
                         current_test_tone_freq = 10000
+                        previewing_index = -2  # Special marker for test tone
+                        play_start_time = time.time()
+                elif key == ord('4'):
+                    # Play 15kHz test tone
+                    stop_preview()
+                    if play_test_tone(15000, TEST_TONE_DURATION_SECONDS):
+                        current_test_tone_freq = 15000
                         previewing_index = -2  # Special marker for test tone
                         play_start_time = time.time()
                 elif key in (curses.KEY_ENTER, 10, 13):
