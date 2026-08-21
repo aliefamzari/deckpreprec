@@ -456,9 +456,11 @@ python decprec.py --counter-mode manual --counter-config deck_a.json
 | `L` | Load track selection from file |
 | `P` | Play/Pause track (toggle playback) |
 | `X` | Stop playback and reset position |
-| `1` | Play 400Hz test tone (30 seconds) |
-| `2` | Play 1kHz test tone (30 seconds) |
-| `3` | Play 10kHz test tone (30 seconds) |
+| `1` | Play 400Hz test tone (2 minutes) |
+| `2` | Play 1kHz test tone (2 minutes) |
+| `3` | Play 10kHz test tone (2 minutes) |
+| `4` | Play 15kHz test tone (2 minutes) |
+| `5` | Play 20Hz-20kHz logarithmic sweep (30 seconds) |
 | `←` / `→` | Rewind/Forward 10 seconds (while playing) |
 | `[` / `]` | Jump to previous/next track and play (stops at boundaries) |
 | `Enter` | Start recording process |
@@ -470,9 +472,11 @@ python decprec.py --counter-mode manual --counter-config deck_a.json
 | `↑` / `↓` / `K` / `J` | Navigate tracks (keeps current track playing) |
 | `P` | Play/Pause track (toggle playback) |
 | `X` | Stop playback and reset position |
-| `1` | Play 400Hz test tone (30 seconds) |
-| `2` | Play 1kHz test tone (30 seconds) |
-| `3` | Play 10kHz test tone (30 seconds) |
+| `1` | Play 400Hz test tone (2 minutes) |
+| `2` | Play 1kHz test tone (2 minutes) |
+| `3` | Play 10kHz test tone (2 minutes) |
+| `4` | Play 15kHz test tone (2 minutes) |
+| `5` | Play 20Hz-20kHz logarithmic sweep (30 seconds) |
 | `←` / `→` | Rewind/Forward 10 seconds (while playing) |
 | `[` / `]` | Jump to previous/next track and play |
 | `Enter` | Proceed to recording |

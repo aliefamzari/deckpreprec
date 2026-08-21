@@ -15,7 +15,7 @@ Features:
     - Auto Physics: Realistic reel simulation with non-linear rates
     - Static Linear: Constant rate throughout tape
   • Real-time VU meters with dBFS scale and actual waveform analysis (L/R channels)
-    • Test tone generator (400Hz, 1kHz, 10kHz, 15kHz) for level calibration
+    • Test tone generator (400Hz, 1kHz, 10kHz, 15kHz, sweep) for level calibration
   • Interactive track selection with capacity validation and duration warnings
   • Pre-analyzed audio with RMS-based level detection and preview capability
   • Configurable leader gaps, track gaps, and tape types (I, II, IV) - informational display only
@@ -52,7 +52,7 @@ Keyboard Controls:
     X             Stop preview and reset position
     S             Save current track selection to file
     L             Load track selection from file
-    1/2/3/4       Play test tones (400Hz/1kHz/10kHz/15kHz)
+    1/2/3/4/5     Play test tones (400Hz/1kHz/10kHz/15kHz/sweep)
     ←/→, H/L      Rewind/forward 10 seconds during preview
     [/]           Jump to previous/next track and play
     Enter         Start normalization/recording process
@@ -1235,6 +1235,18 @@ def format_duration(seconds):
     secs = seconds % 60
     return f"{minutes}:{secs:02d}"
 
+def format_test_tone_label(frequency):
+    """Return a user-facing label for a fixed tone or frequency sweep."""
+    if frequency == "sweep":
+        return "20Hz-20kHz Sweep"
+    if frequency == 1000:
+        return "1kHz"
+    if frequency == 10000:
+        return "10kHz"
+    if frequency == 15000:
+        return "15kHz"
+    return f"{frequency}Hz" if frequency else "Test Tone"
+
 def format_counter_value(counter):
     """Format a counter for text output according to the active mode."""
     if COUNTER_MODE == "linear":
@@ -1993,15 +2005,9 @@ def show_normalization_summary(stdscr, normalized_tracks):
         elif playing and playing_track_idx == -2:
             # Test tone is playing
             current_pos = time.time() - play_start_time if play_start_time else 0
-            tone_duration = TEST_TONE_DURATION_SECONDS
-            
-            freq_display = f"{current_test_tone_freq}Hz" if current_test_tone_freq else "Test Tone"
-            if current_test_tone_freq == 1000:
-                freq_display = "1kHz"
-            elif current_test_tone_freq == 10000:
-                freq_display = "10kHz"
-            elif current_test_tone_freq == 15000:
-                freq_display = "15kHz"
+            tone_duration = SWEEP_TONE_DURATION_SECONDS if current_test_tone_freq == "sweep" else TEST_TONE_DURATION_SECONDS
+
+            freq_display = format_test_tone_label(current_test_tone_freq)
             status_text = f"NOW PLAYING: Test Tone {freq_display}"
             position_text = f"Position: {format_duration(current_pos)} / {format_duration(tone_duration)}"
             safe_addstr(stdscr, meter_y, 0, status_text, curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
@@ -2088,7 +2094,9 @@ def show_normalization_summary(stdscr, normalized_tracks):
         safe_addstr(stdscr, footer_y + 5, 23, "3", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
         safe_addstr(stdscr, footer_y + 5, 24, ": 10kHz   ", curses.color_pair(COLOR_WHITE))
         safe_addstr(stdscr, footer_y + 5, 33, "4", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 5, 34, ": 15kHz", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 5, 34, ": 15kHz   ", curses.color_pair(COLOR_WHITE))
+        safe_addstr(stdscr, footer_y + 5, 43, "5", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+        safe_addstr(stdscr, footer_y + 5, 44, ": Sweep", curses.color_pair(COLOR_WHITE))
         
         safe_addstr(stdscr, footer_y + 6, 0, "  ", curses.color_pair(COLOR_WHITE))
         safe_addstr(stdscr, footer_y + 6, 2, "ENTER", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
@@ -2201,6 +2209,15 @@ def show_normalization_summary(stdscr, normalized_tracks):
                 stop_preview()
                 if play_test_tone(15000, TEST_TONE_DURATION_SECONDS):
                     current_test_tone_freq = 15000
+                    playing_track_idx = -2  # Special marker for test tone
+                    playing = True
+                    play_start_time = time.time()
+                    preview_proc = ffplay_proc  # Use the global ffplay_proc
+            elif key == ord('5'):
+                # Play frequency sweep
+                stop_preview()
+                if play_frequency_sweep():
+                    current_test_tone_freq = "sweep"
                     playing_track_idx = -2  # Special marker for test tone
                     playing = True
                     play_start_time = time.time()
@@ -2765,6 +2782,7 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
 
 
 TEST_TONE_DURATION_SECONDS = 120.0
+SWEEP_TONE_DURATION_SECONDS = 30.0
 
 def generate_test_tone(frequency_hz, duration_seconds=TEST_TONE_DURATION_SECONDS):
     """Generate a test tone at specified frequency and return temporary file path."""
@@ -2801,6 +2819,58 @@ def play_test_tone(frequency_hz, duration_seconds=TEST_TONE_DURATION_SECONDS):
         cleanup_after_delay()
         return True
     except Exception as e:
+        return False
+
+def generate_frequency_sweep(
+    duration_seconds=SWEEP_TONE_DURATION_SECONDS,
+    start_frequency=20.0,
+    end_frequency=20000.0,
+    sample_rate=44100
+):
+    """Generate a logarithmic frequency sweep as a temporary WAV file."""
+    sample_count = int(duration_seconds * sample_rate)
+    time_values = np.arange(sample_count, dtype=np.float64) / sample_rate
+    sweep_rate = math.log(end_frequency / start_frequency) / duration_seconds
+    phase = 2 * math.pi * start_frequency * np.expm1(sweep_rate * time_values) / sweep_rate
+    samples = 0.8 * np.sin(phase)
+
+    fade_samples = min(int(sample_rate * 0.01), sample_count // 2)
+    if fade_samples:
+        fade = np.linspace(0.0, 1.0, fade_samples)
+        samples[:fade_samples] *= fade
+        samples[-fade_samples:] *= fade[::-1]
+
+    audio = AudioSegment(
+        (samples * 32767).astype(np.int16).tobytes(),
+        frame_rate=sample_rate,
+        sample_width=2,
+        channels=1
+    )
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+    temp_path = temp_file.name
+    temp_file.close()
+    audio.export(temp_path, format="wav")
+    return temp_path
+
+def play_frequency_sweep(duration_seconds=SWEEP_TONE_DURATION_SECONDS):
+    """Generate and play the logarithmic frequency sweep."""
+    try:
+        sweep_path = generate_frequency_sweep(duration_seconds)
+        play_audio(sweep_path)
+
+        def cleanup_after_delay():
+            import threading
+            def cleanup():
+                time.sleep(duration_seconds + 2)
+                try:
+                    os.unlink(sweep_path)
+                except OSError:
+                    pass
+            threading.Thread(target=cleanup, daemon=True).start()
+
+        cleanup_after_delay()
+        return True
+    except Exception:
         return False
 
 def play_audio(path, seek_pos=0.0):
@@ -2977,15 +3047,9 @@ def main_menu(folder):
             elif previewing_index == -2 and play_start_time is not None:
                 # Test tone is playing
                 current_pos = time.time() - play_start_time
-                tone_duration = TEST_TONE_DURATION_SECONDS
+                tone_duration = SWEEP_TONE_DURATION_SECONDS if current_test_tone_freq == "sweep" else TEST_TONE_DURATION_SECONDS
                 
-                freq_display = f"{current_test_tone_freq}Hz" if current_test_tone_freq else "Test Tone"
-                if current_test_tone_freq == 1000:
-                    freq_display = "1kHz"
-                elif current_test_tone_freq == 10000:
-                    freq_display = "10kHz"
-                elif current_test_tone_freq == 15000:
-                    freq_display = "15kHz"
+                freq_display = format_test_tone_label(current_test_tone_freq)
                 status_text = f"NOW PLAYING: Test Tone {freq_display}"
                 position_text = f"Position: {format_duration(current_pos)} / {format_duration(tone_duration)}"
                 safe_addstr(stdscr, meter_y, 0, status_text, curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
@@ -3253,7 +3317,9 @@ def main_menu(folder):
                 safe_addstr(stdscr, controls_y + 5, 23, "3", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
                 safe_addstr(stdscr, controls_y + 5, 24, ": 10kHz   ", curses.color_pair(COLOR_WHITE))
                 safe_addstr(stdscr, controls_y + 5, 33, "4", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 5, 34, ": 15kHz", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 5, 34, ": 15kHz   ", curses.color_pair(COLOR_WHITE))
+                safe_addstr(stdscr, controls_y + 5, 43, "5", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
+                safe_addstr(stdscr, controls_y + 5, 44, ": Sweep", curses.color_pair(COLOR_WHITE))
                 
                 # Line 5: List management controls
                 safe_addstr(stdscr, controls_y + 6, 0, "  ", curses.color_pair(COLOR_WHITE))
@@ -3724,6 +3790,13 @@ def main_menu(folder):
                     stop_preview()
                     if play_test_tone(15000, TEST_TONE_DURATION_SECONDS):
                         current_test_tone_freq = 15000
+                        previewing_index = -2  # Special marker for test tone
+                        play_start_time = time.time()
+                elif key == ord('5'):
+                    # Play frequency sweep
+                    stop_preview()
+                    if play_frequency_sweep():
+                        current_test_tone_freq = "sweep"
                         previewing_index = -2  # Special marker for test tone
                         play_start_time = time.time()
                 elif key in (curses.KEY_ENTER, 10, 13):
