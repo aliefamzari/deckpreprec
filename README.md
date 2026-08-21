@@ -291,7 +291,7 @@ python decprec.py --tracks-folder ./tracks --track-gap 5 --duration 60 --counter
 - `--tracks-folder PATH` - Audio tracks directory (default: `./tracks`)
 - `--track-gap N` - Gap between tracks in seconds (default: `5`)
 - `--duration N` - Maximum tape duration in minutes (default: `30`)
-- `--counter-mode MODE` - Counter calculation mode: `manual`, `auto`, or `static` (default: `static`)
+- `--counter-mode MODE` - Counter calculation mode: `manual`, `auto`, `static`, or `linear` (default: `static`)
 - `--counter-rate N` - Counter increments per second for static mode (default: `1.0`)
 - `--counter-config PATH` - Path to counter calibration file for manual mode (default: `counter_calibration.json`)
 - `--calibrate-counter` - Run interactive counter calibration wizard
@@ -327,7 +327,7 @@ deckpreprec/
 
 ## 📟 Tape Counter Calibration
 
-The script supports three counter modes to match your specific tape deck:
+The script supports four counter modes to match your specific tape deck:
 
 ### Counter Modes
 
@@ -399,7 +399,18 @@ This mode uses checkpoints you measure from your actual tape deck and interpolat
 
 ---
 
-#### 3. **Auto Physics Mode** - Simulates Tape Reel Mechanics
+#### 3. **Linear Mode** - Elapsed Tape Time
+```bash
+python decprec.py --counter-mode linear
+```
+- Uses elapsed seconds directly, with no deck-specific counter calibration
+- Displays the counter as elapsed `MM:SS`
+- Useful when you want the tracklist positions to match a stopwatch or tape runtime
+- `--counter-rate` is ignored in this mode
+
+---
+
+#### 4. **Auto Physics Mode** - Simulates Tape Reel Mechanics
 ```bash
 python decprec.py --counter-mode auto --counter-rate 1.408
 ```
@@ -414,6 +425,7 @@ python decprec.py --counter-mode auto --counter-rate 1.408
 **When to use each mode:**
 - **Static**: Your deck counter runs at constant speed (most common)
 - **Manual**: You want maximum accuracy for your specific deck
+- **Linear**: You want elapsed tape time shown as `MM:SS`
 - **Auto**: Your deck's counter is mechanically connected to the reel rotation
 
 ---
@@ -494,7 +506,7 @@ The warning calculation includes track gaps and leader tape to give accurate cap
 All screens now show comprehensive configuration information:
 
 **Always Visible Information:**
-- **Tape Counter Config:** Manual (Deck Model) / Auto (Physics) / Static (Rate)
+- **Tape Counter Config:** Manual (Deck Model) / Auto (Physics) / Static (Rate) / Linear (Elapsed Time)
 - **Tape Type:** Type I-IV with bias/EQ specifications and characteristics  
 - **Audio Settings:** Normalization method and target levels
 - **Timing:** Leader gaps, track gaps, and latency compensation
@@ -523,7 +535,7 @@ python3 decprec.py --tracks-folder ~/music/mixtape
 --track-gap SECONDS               # Silence between tracks (default: 5)
 
 # Counter system  
---counter-mode {manual,auto,static}    # Counter calculation mode (default: static)
+--counter-mode {manual,auto,static,linear}    # Counter calculation mode (default: static)
 --counter-rate RATE                    # Static mode: increments per second
 --counter-config FILE                  # Manual mode: calibration data file
 --calibrate-counter                    # Run interactive calibration wizard

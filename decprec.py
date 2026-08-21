@@ -34,7 +34,7 @@ Arguments:
   --tracks-folder    Path to audio tracks directory (default: ./tracks)
   --track-gap        Gap between tracks in seconds (default: 5)
   --duration         Maximum tape duration in minutes (default: 60)
-  --counter-mode     Counter calculation mode: manual|auto|static (default: static)
+    --counter-mode     Counter calculation mode: manual|auto|static|linear (default: static)
   --counter-rate     Static counter rate counts/second (default: 1.0)
   --leader-gap       Leader gap before first track in seconds (default: 10)
   --tape-type        Tape formulation (informational): "Type I"|"Type II"|"Type IV" (default: "Type I")
@@ -587,9 +587,10 @@ def create_deck_profile_wizard(stdscr, current_settings):
                                 value_str += char
             
             # Step 1: Counter Mode
-            counter_modes = ["static", "manual", "auto"]
+            counter_modes = ["static", "linear", "manual", "auto"]
             counter_desc = [
                 "Constant rate throughout tape",
+                "Elapsed tape time in MM:SS format",
                 "Uses calibrated deck measurements",
                 "Realistic physics-based simulation"
             ]
@@ -757,7 +758,7 @@ parser.add_argument("--track-gap", type=int, default=5, help="Gap between tracks
 parser.add_argument("--duration", type=int, default=30, help="Maximum tape duration in minutes per side (default: 30 - C60 cassette side)")
 parser.add_argument("--tracks-folder", type=str, default="./tracks", help="Folder with audio tracks")
 parser.add_argument("--counter-rate", type=float, default=1.0, help="Tape counter increments per second for static mode (default: 1.0)")
-parser.add_argument("--counter-mode", type=str, default="static", choices=["manual", "auto", "static"], help="Counter calculation mode: 'manual' (calibrated), 'auto' (physics), 'static' (constant rate) (default: static)")
+parser.add_argument("--counter-mode", type=str, default="static", choices=["manual", "auto", "static", "linear"], help="Counter calculation mode: 'manual' (calibrated), 'auto' (physics), 'static' (constant rate), 'linear' (elapsed MM:SS) (default: static)")
 parser.add_argument("--calibrate-counter", action="store_true", help="Run interactive counter calibration wizard")
 parser.add_argument("--counter-config", type=str, default="counter_calibration.json", help="Path to counter calibration config file for manual mode (default: counter_calibration.json)")
 parser.add_argument("--leader-gap", type=int, default=10, help="Leader gap before first track in seconds (default: 10)")
@@ -958,7 +959,8 @@ def calculate_tape_counter(elapsed_seconds):
     Modes:
     - 'manual': Uses user-calibrated checkpoints with interpolation
     - 'auto': Physics-based simulation using reel mechanics
-    - 'static': Constant linear rate
+    - 'static': Constant counter rate
+    - 'linear': Elapsed tape time in seconds
     
     Args:
         elapsed_seconds: Time elapsed in seconds
@@ -970,6 +972,8 @@ def calculate_tape_counter(elapsed_seconds):
         return calculate_counter_manual(elapsed_seconds)
     elif COUNTER_MODE == "auto":
         return calculate_counter_auto(elapsed_seconds)
+    elif COUNTER_MODE == "linear":
+        return calculate_counter_linear(elapsed_seconds)
     else:  # static
         return calculate_counter_static(elapsed_seconds)
 
@@ -979,6 +983,10 @@ def calculate_counter_static(elapsed_seconds):
     Simple linear calculation.
     """
     return int(elapsed_seconds * COUNTER_RATE)
+
+def calculate_counter_linear(elapsed_seconds):
+    """Linear counter based directly on elapsed tape time in seconds."""
+    return max(0, int(elapsed_seconds))
 
 def calculate_counter_manual(elapsed_seconds):
     """
@@ -1227,12 +1235,30 @@ def format_duration(seconds):
     secs = seconds % 60
     return f"{minutes}:{secs:02d}"
 
+def format_counter_value(counter):
+    """Format a counter for text output according to the active mode."""
+    if COUNTER_MODE == "linear":
+        return format_duration(counter)
+    return f"{counter:04d}"
+
+def format_counter_digits(counter):
+    """Format a counter for the large digit display."""
+    if COUNTER_MODE == "linear":
+        minutes, seconds = divmod(max(0, int(counter)), 60)
+        return f"{minutes:02d}{seconds:02d}"
+    return f"{counter:04d}"
+
+def counter_display_name():
+    """Return the label that explains the displayed counter values."""
+    return "ELAPSED TIME" if COUNTER_MODE == "linear" else "DECK COUNTER"
+
 def draw_config_info(stdscr, y, x, compact=False, selected_tracks=None, show_warning=False):
     """Draw current configuration information"""
     mode_names = {
         "manual": "Manual Calibrated",
         "auto": "Auto Physics", 
-        "static": "Static Linear"
+        "static": "Static Linear",
+        "linear": "Linear Elapsed Time"
     }
     
     if compact:
@@ -1242,6 +1268,8 @@ def draw_config_info(stdscr, y, x, compact=False, selected_tracks=None, show_war
         counter_info = f"Counter: {mode_names.get(COUNTER_MODE, COUNTER_MODE)}"
         if COUNTER_MODE == "static":
             counter_info += f" ({COUNTER_RATE} counts/sec)"
+        elif COUNTER_MODE == "linear":
+            counter_info += " (elapsed MM:SS)"
         elif COUNTER_MODE == "manual":
             if CALIBRATION_DATA:
                 deck = CALIBRATION_DATA.get('deck_model', 'Unknown')
@@ -1307,6 +1335,8 @@ def draw_config_info(stdscr, y, x, compact=False, selected_tracks=None, show_war
         counter_info = f"Counter: {mode_names.get(COUNTER_MODE, COUNTER_MODE)}"
         if COUNTER_MODE == "static":
             counter_info += f" ({COUNTER_RATE} counts/sec)"
+        elif COUNTER_MODE == "linear":
+            counter_info += " (elapsed MM:SS)"
         elif COUNTER_MODE == "manual":
             if CALIBRATION_DATA:
                 deck = CALIBRATION_DATA.get('deck_model', 'Unknown')
@@ -1740,7 +1770,7 @@ def write_deck_tracklist(normalized_tracks, track_gap, folder, counter_rate, lea
         lines.append(
             f"{idx+1:02d}. {track['name']}\n"
             f"    Start: {format_duration(start_time)}   End: {format_duration(end_time)}   Duration: {format_duration(duration)}\n"
-            f"    Counter: {counter_start:04d} - {counter_end:04d}"
+            f"    {counter_display_name()}: {format_counter_value(counter_start)} - {format_counter_value(counter_end)}"
         )
         current_time = end_time + (track_gap if idx < len(normalized_tracks)-1 else 0)
     
@@ -1771,12 +1801,15 @@ def write_deck_tracklist(normalized_tracks, track_gap, folder, counter_rate, lea
         mode_names = {
             "manual": "Manual Calibrated",
             "auto": "Auto Physics", 
-            "static": "Static Linear"
+            "static": "Static Linear",
+            "linear": "Linear Elapsed Time"
         }
         f.write(f"Counter Mode: {mode_names.get(COUNTER_MODE, COUNTER_MODE)}\n")
         
         if COUNTER_MODE == "static":
             f.write(f"Counter Rate: {COUNTER_RATE} counts/second (constant)\n")
+        elif COUNTER_MODE == "linear":
+            f.write("Counter Format: Elapsed time (MM:SS)\n")
         elif COUNTER_MODE == "manual" and CALIBRATION_DATA:
             f.write(f"Calibration Source: {COUNTER_CONFIG_PATH}\n")
             deck = CALIBRATION_DATA.get('deck_model', 'Unknown')
@@ -1792,7 +1825,7 @@ def write_deck_tracklist(normalized_tracks, track_gap, folder, counter_rate, lea
             f.write(f"Physics Simulation: Reel-based calculation\n")
             f.write(f"Base Rate: {COUNTER_RATE} counts/second (at tape midpoint)\n")
         
-        f.write(f"Leader Gap: {leader_gap}s (Counter: 0000 - {calculate_tape_counter(leader_gap):04d})\n\n")
+        f.write(f"Leader Gap: {leader_gap}s ({counter_display_name()}: {format_counter_value(0)} - {format_counter_value(calculate_tape_counter(leader_gap))})\n\n")
         
         # Audio Configuration
         f.write("AUDIO CONFIGURATION:\n")
@@ -2427,7 +2460,7 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
                 first_leader_draw = False
             
             # Draw large tape counter
-            counter_str = f"{current_counter:04d}"
+            counter_str = format_counter_digits(current_counter)
             
             # Digital 7-segment style numbers for tape counter
             big_numbers = {
@@ -2471,7 +2504,7 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             # Counter label centered below digits
             label_y = counter_y + 10
             total_counter_width = (digit_width * 4) + (spacing * 3)
-            label_text = "[TAPE COUNTER]"
+            label_text = f"[{counter_display_name()}]"
             # Center the label within the counter width
             padding = (total_counter_width - len(label_text)) // 2
             safe_addstr(stdscr, label_y, start_x + padding, label_text, curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
@@ -2481,7 +2514,7 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
             leader_remaining = int(leader_gap - leader_elapsed)
             safe_addstr(stdscr, msg_y, 10, f"Waiting for leader tape to pass... {leader_remaining}s", 
                          curses.color_pair(COLOR_YELLOW) | curses.A_BLINK)
-            safe_addstr(stdscr, msg_y + 2, 10, f"First track will start at counter {calculate_tape_counter(leader_gap):04d}", 
+            safe_addstr(stdscr, msg_y + 2, 10, f"First track will start at counter {format_counter_value(calculate_tape_counter(leader_gap))}",
                          curses.color_pair(COLOR_CYAN))
             
             footer_y = msg_y + 5
@@ -2563,7 +2596,7 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
                     first_draw = False
             
                 # Draw large tape counter at top
-                counter_str = f"{current_counter:04d}"
+                counter_str = format_counter_digits(current_counter)
                 
                 # Use big_numbers dictionary
                 big_numbers = {
@@ -2607,7 +2640,7 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
                 # Counter label centered below digits
                 label_y = counter_y + 10
                 total_counter_width = (digit_width * 4) + (spacing * 3)
-                label_text = "[TAPE COUNTER]"
+                label_text = f"[{counter_display_name()}]"
                 # Center the label within the counter width
                 padding = (total_counter_width - len(label_text)) // 2
                 safe_addstr(stdscr, label_y, start_x + padding, label_text, curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
@@ -2662,10 +2695,8 @@ def playback_deck_recording(stdscr, normalized_tracks, track_gap, total_duration
                     safe_addstr(stdscr, line_y, 3, f" {i+1:02d}. ", curses.color_pair(color))
                     safe_addstr(stdscr, line_y, 9, f"{wav_name}", curses.color_pair(COLOR_YELLOW) if is_current else curses.color_pair(COLOR_WHITE))
                     safe_addstr(stdscr, line_y + 1, 5, f"Start: {format_duration(start_time_track)}   End: {format_duration(end_time_track)}   Duration: {format_duration(duration)}", curses.color_pair(color))
-                    counter_line = f"Counter: {counter_start:04d} - {counter_end:04d}"
+                    counter_line = f"{counter_display_name()}: {format_counter_value(counter_start)} - {format_counter_value(counter_end)}"
                     safe_addstr(stdscr, line_y + 2, 5, counter_line, curses.color_pair(color))
-                    safe_addstr(stdscr, line_y + 2, 14, f"{counter_start:04d}", curses.color_pair(COLOR_YELLOW))
-                    safe_addstr(stdscr, line_y + 2, 21, f"{counter_end:04d}", curses.color_pair(COLOR_YELLOW))
                 
                 # Footer (with boundary checking)
                 footer_y = tracks_y + 1 + (len(normalized_tracks) * 3) + 1
@@ -3726,11 +3757,14 @@ if __name__ == "__main__":
     mode_names = {
         "manual": "Manual Calibrated",
         "auto": "Auto Physics Simulation",
-        "static": "Static Linear Rate"
+        "static": "Static Linear Rate",
+        "linear": "Linear Elapsed Time"
     }
     print(f"Counter Mode: {mode_names.get(COUNTER_MODE, COUNTER_MODE)}")
     if COUNTER_MODE == "static":
         print(f"Counter Rate: {COUNTER_RATE} counts/second\n")
+    elif COUNTER_MODE == "linear":
+        print("Counter Format: Elapsed time (MM:SS)\n")
     
     main_menu(TRACKS_FOLDER)
 

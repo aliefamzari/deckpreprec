@@ -6,6 +6,7 @@
 1. **Not sure?** → Start with **Static mode** (default)
 2. **Want best accuracy?** → Use **Manual Calibrated mode**
 3. **Counter speeds up/slows down?** → Try **Auto Physics mode**
+4. **Want stopwatch-style positions?** → Use **Linear mode**
 
 ---
 
@@ -35,6 +36,16 @@ python decprec.py --counter-mode static --counter-rate 1.408
 ```
 
 **Tip:** For better accuracy, measure for 15-30 minutes instead of 2 minutes.
+
+## ⏱️ Linear Mode (Elapsed Time)
+
+Use linear mode when tracklist positions should use elapsed tape time directly:
+
+```bash
+python decprec.py --counter-mode linear
+```
+
+The counter advances one unit per second and is displayed as `MM:SS`. The `--counter-rate` option is ignored.
 
 ---
 
@@ -100,6 +111,7 @@ The counter will:
 | Mode | Setup Time | Accuracy | Best For |
 |------|------------|----------|----------|
 | Static | 2 min | Good | Most decks, quick start |
+| Linear | None | Exact time | Stopwatch-style track positions |
 | Manual | 30 min | Excellent | Maximum accuracy |
 | Auto | 2 min | Variable | Mechanically-driven counters |
 
