@@ -39,6 +39,7 @@ Arguments:
   --leader-gap       Leader gap before first track in seconds (default: 10)
   --tape-type        Tape formulation (informational): "Type I"|"Type II"|"Type IV" (default: "Type I")
   --normalization    Normalization method: peak|lufs (default: lufs)
+    --normalization-exclude-formats  Comma-separated extensions to bypass normalization
   --target-lufs      Target LUFS level for LUFS normalization (default: -14.0)
   --calibrate-counter Run counter calibration wizard
   --deck-profile     Load complete deck configuration from JSON file
@@ -61,7 +62,7 @@ Keyboard Controls:
   Recording Mode:
     Q             Return to main menu
 
-Supported Formats: MP3, WAV, FLAC, WebM, M4A, AAC, OGG
+Supported Formats: MP3, WAV, FLAC, WebM, M4A, AAC, OGG, DSF, DFF
 
 System Requirements: 
   - Python 3.7+
@@ -285,6 +286,7 @@ def load_deck_profile(profile_path, args):
         'counter_rate': 'counter_rate',
         'leader_gap': 'leader_gap',
         'normalization': 'normalization',
+        'normalization_exclude_formats': 'normalization_exclude_formats',
         'target_lufs': 'target_lufs',
         'tape_type': 'tape_type',
         'folder': 'folder',
@@ -311,6 +313,7 @@ def load_profile_runtime(profile_path):
     global NORMALIZATION_METHOD, TARGET_LUFS, TAPE_TYPE, TOTAL_DURATION_MINUTES
     global TRACK_GAP_SECONDS, TRACKS_FOLDER, AUDIO_LATENCY, CALIBRATION_DATA
     global ACTIVE_PROFILE_NAME
+    global NORMALIZATION_EXCLUDE_FORMATS_RAW, NORMALIZATION_EXCLUDE_FORMATS
     
     if not os.path.isfile(profile_path):
         return False, f"Profile file '{profile_path}' not found."
@@ -336,6 +339,9 @@ def load_profile_runtime(profile_path):
         LEADER_GAP_SECONDS = profile['leader_gap']
     if 'normalization' in profile:
         NORMALIZATION_METHOD = profile['normalization']
+    if 'normalization_exclude_formats' in profile:
+        NORMALIZATION_EXCLUDE_FORMATS_RAW = profile['normalization_exclude_formats']
+        NORMALIZATION_EXCLUDE_FORMATS = parse_extension_list(NORMALIZATION_EXCLUDE_FORMATS_RAW)
     if 'target_lufs' in profile:
         TARGET_LUFS = profile['target_lufs']
     if 'tape_type' in profile:
@@ -481,6 +487,7 @@ def create_deck_profile_wizard(stdscr, current_settings):
                 'counter_rate': current_settings['counter_rate'],
                 'counter_config': current_settings['counter_config'],
                 'normalization': current_settings['normalization'],
+                'normalization_exclude_formats': current_settings['normalization_exclude_formats'],
                 'target_lufs': current_settings['target_lufs'],
                 'leader_gap': current_settings['leader_gap'],
                 'track_gap': current_settings['track_gap'],
@@ -675,6 +682,7 @@ def create_deck_profile_wizard(stdscr, current_settings):
             
             # Step 10: Tracks Folder (use current)
             custom_settings['tracks_folder'] = current_settings['tracks_folder']
+            custom_settings['normalization_exclude_formats'] = current_settings['normalization_exclude_formats']
             
             # Create profile data
             profile_data.update({
@@ -752,6 +760,24 @@ except ImportError:
     PYLOUDNORM_AVAILABLE = False
     pyln = None
 
+
+def parse_extension_list(raw_value):
+    """Parse comma-separated extension list into normalized dot-prefixed lowercase set."""
+    if not raw_value:
+        return set()
+    extensions = set()
+    for part in raw_value.split(','):
+        ext = part.strip().lower()
+        if not ext:
+            continue
+        if not ext.startswith('.'):
+            ext = f".{ext}"
+        extensions.add(ext)
+    return extensions
+
+
+SUPPORTED_AUDIO_EXTENSIONS = ('.mp3', '.wav', '.flac', '.webm', '.m4a', '.aac', '.ogg', '.dsf', '.dff')
+
 # --- Argument parsing ---
 parser = argparse.ArgumentParser(description="Audio Player for Tape Recording")
 parser.add_argument("--track-gap", type=int, default=5, help="Gap between tracks in seconds (default: 5)")
@@ -763,6 +789,7 @@ parser.add_argument("--calibrate-counter", action="store_true", help="Run intera
 parser.add_argument("--counter-config", type=str, default="counter_calibration.json", help="Path to counter calibration config file for manual mode (default: counter_calibration.json)")
 parser.add_argument("--leader-gap", type=int, default=10, help="Leader gap before first track in seconds (default: 10)")
 parser.add_argument("--normalization", type=str, default="lufs", choices=["peak", "lufs"], help="Normalization method: 'peak' or 'lufs' (default: lufs)")
+parser.add_argument("--normalization-exclude-formats", type=str, default="", help="Comma-separated file extensions to exclude from normalization (example: flac,dsf,dff). Excluded files are still included for playback/recording.")
 parser.add_argument("--target-lufs", type=float, default=-14.0, help="Target LUFS level for LUFS normalization (default: -14.0)")
 parser.add_argument("--audio-latency", type=float, default=0.0, help="Audio latency compensation in seconds for VU meter sync (default: 0.0, try 0.1-0.5 if audio lags behind meters)")
 parser.add_argument("--tape-type", type=str, default="Type I", choices=["Type I", "Type II", "Type III", "Type IV"], help="Cassette tape type (informational only): Type I (Normal/Ferric), Type II (Chrome/High Bias), Type III (Ferrochrome), Type IV (Metal) - for display purposes only, does not control deck bias settings (default: Type I)")
@@ -789,6 +816,8 @@ COUNTER_MODE = args.counter_mode
 COUNTER_CONFIG_PATH = args.counter_config
 LEADER_GAP_SECONDS = args.leader_gap
 NORMALIZATION_METHOD = args.normalization
+NORMALIZATION_EXCLUDE_FORMATS_RAW = args.normalization_exclude_formats
+NORMALIZATION_EXCLUDE_FORMATS = parse_extension_list(NORMALIZATION_EXCLUDE_FORMATS_RAW)
 TARGET_LUFS = args.target_lufs
 AUDIO_LATENCY = args.audio_latency
 TAPE_TYPE = args.tape_type
@@ -1663,7 +1692,7 @@ def list_tracks(folder):
     if not os.path.isdir(folder):
         return tracks
     for file in sorted(os.listdir(folder)):
-        if file.lower().endswith(('.mp3', '.wav', '.flac', '.webm', '.m4a', '.aac', '.ogg')):
+        if file.lower().endswith(SUPPORTED_AUDIO_EXTENSIONS):
             filepath = os.path.join(folder, file)
             duration, codec, quality = get_ffprobe_info(filepath)
             if duration is None:
@@ -1700,6 +1729,30 @@ def normalize_tracks(tracks, folder, stdscr=None):
     
     for i, track in enumerate(tracks):
         src_path = os.path.join(folder, track['name'])
+        track_ext = os.path.splitext(track['name'])[1].lower()
+
+        # Keep excluded formats in the workflow without normalization.
+        if track_ext in NORMALIZATION_EXCLUDE_FORMATS:
+            if stdscr:
+                stdscr.clear()
+                safe_addstr(stdscr, 0, 0, f"Bypassing normalization {i+1}/{len(tracks)}: {track['name']}", curses.color_pair(COLOR_YELLOW))
+                safe_addstr(stdscr, 1, 0, f"Excluded format: {track_ext}", curses.color_pair(COLOR_CYAN))
+                safe_addstr(stdscr, 2, 0, "Analyzing waveform...", curses.color_pair(COLOR_GREEN))
+                stdscr.refresh()
+            audio = AudioSegment.from_file(src_path)
+            audio_levels = analyze_audio_levels(audio, chunk_duration_ms=50)
+            loudness = calculate_loudness(audio) if method == "lufs" and PYLOUDNORM_AVAILABLE else None
+            normalized_tracks.append({
+                'name': track['name'],
+                'audio': audio,
+                'path': src_path,
+                'dBFS': audio.dBFS,
+                'loudness': loudness,
+                'audio_levels': audio_levels,
+                'method': 'bypass'
+            })
+            continue
+
         # normalized filename includes method and target value to distinguish between normalizations
         if method == "lufs":
             norm_name = f"{track['name']}.lufs{TARGET_LUFS:+.1f}.normalized.wav"
@@ -1847,6 +1900,9 @@ def write_deck_tracklist(normalized_tracks, track_gap, folder, counter_rate, lea
             f.write(f" (target: {TARGET_LUFS:+.1f} LUFS)\n")
         else:
             f.write(" (peak normalization)\n")
+        if NORMALIZATION_EXCLUDE_FORMATS:
+            excluded = ", ".join(sorted(NORMALIZATION_EXCLUDE_FORMATS))
+            f.write(f"Normalization Exclusions: {excluded} (bypassed, not converted)\n")
         f.write(f"Track Gap: {track_gap}s between tracks\n")
         f.write(f"Tape Duration: {TOTAL_DURATION_MINUTES} minutes per side\n")
         if AUDIO_LATENCY > 0:
@@ -2029,9 +2085,16 @@ def show_normalization_summary(stdscr, normalized_tracks):
         
         # Track list with method indicator
         tracklist_y = meter_y + 8
-        method = normalized_tracks[0].get('method', 'peak') if normalized_tracks else 'peak'
-        method_label = "LUFS" if method == "lufs" else "Peak dBFS"
-        safe_addstr(stdscr, tracklist_y, 0, f"TRACK LIST ({method_label} Normalization):", curses.color_pair(COLOR_YELLOW))
+        methods_used = {track.get('method', 'peak') for track in normalized_tracks}
+        if methods_used == {'lufs'}:
+            method_label = "LUFS"
+        elif methods_used == {'peak'}:
+            method_label = "Peak dBFS"
+        elif methods_used == {'bypass'}:
+            method_label = "Source (No Normalization)"
+        else:
+            method_label = "Mixed (Normalized + Bypass)"
+        safe_addstr(stdscr, tracklist_y, 0, f"TRACK LIST ({method_label}):", curses.color_pair(COLOR_YELLOW))
         
         for i, track in enumerate(normalized_tracks):
             if tracklist_y + 1 + i >= max_y - 10:  # Leave room for footer
@@ -3410,7 +3473,8 @@ def main_menu(folder):
                         'tape_type': TAPE_TYPE,
                         'duration': TOTAL_DURATION_MINUTES,
                         'tracks_folder': TRACKS_FOLDER,
-                        'audio_latency': AUDIO_LATENCY
+                        'audio_latency': AUDIO_LATENCY,
+                        'normalization_exclude_formats': NORMALIZATION_EXCLUDE_FORMATS_RAW
                     })
                     stdscr.nodelay(True)  # Return to non-blocking
                     needs_full_redraw = True

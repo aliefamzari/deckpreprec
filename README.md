@@ -297,13 +297,14 @@ python decprec.py --tracks-folder ./tracks --track-gap 5 --duration 60 --counter
 - `--calibrate-counter` - Run interactive counter calibration wizard
 - `--leader-gap N` - Leader gap before first track in seconds (default: `10`)
 - `--normalization METHOD` - Normalization method: `peak` or `lufs` (default: `lufs`)
+- `--normalization-exclude-formats LIST` - Comma-separated extensions to bypass normalization while still including those files in playback/recording (example: `flac,dsf,dff`)
 - `--target-lufs N` - Target LUFS level for LUFS normalization (default: `-14.0`)
 - `--audio-latency N` - Audio latency compensation in seconds for VU meter sync (default: `0.0`, try `0.1-0.5` if audio lags behind meters)
 - `--ffmpeg-path PATH` - Path to ffmpeg binary (default: `/usr/bin/ffmpeg`). Use this on Windows to point to your `ffmpeg.exe` location
 
 ### Supported Audio Formats
 
-MP3, WAV, FLAC, WebM, M4A, AAC, OGG
+MP3, WAV, FLAC, WebM, M4A, AAC, OGG, DSF, DFF
 
 ### Folder Structure
 
@@ -529,6 +530,7 @@ python3 decprec.py --tracks-folder ~/music/mixtape
 
 # Audio settings
 --normalization {peak,lufs}        # Normalization method (default: lufs)
+--normalization-exclude-formats EXT1,EXT2  # Skip normalization for selected extensions (example: flac,dsf,dff)
 --target-lufs TARGET_LUFS          # Target LUFS level (default: -14.0)
 --audio-latency SECONDS            # VU meter sync compensation (try 0.1-0.5)
 
