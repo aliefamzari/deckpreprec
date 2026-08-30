@@ -3583,6 +3583,7 @@ def main_menu(folder):
                     
                     # File selection loop
                     file_index = 0
+                    file_scroll = 0
                     need_redraw = True
                     while True:
                         if need_redraw:
@@ -3590,14 +3591,31 @@ def main_menu(folder):
                             need_redraw = False
                         safe_addstr(stdscr, 2, 2, f"SELECT {file_type_name} TO LOAD:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
                         
-                        for i, filepath in enumerate(files_to_use[:10]):  # Show max 10 files
-                            filename = os.path.basename(filepath)
+                        list_top = 4
+                        # Leave room for the footer and the delete confirmation dialog below the list
+                        max_visible = max(1, min(len(files_to_use), max_y - list_top - 12))
+                        # Keep the highlighted entry inside the visible window
+                        if file_index < file_scroll:
+                            file_scroll = file_index
+                        elif file_index >= file_scroll + max_visible:
+                            file_scroll = file_index - max_visible + 1
+                        file_scroll = max(0, min(file_scroll, max(0, len(files_to_use) - max_visible)))
+                        
+                        for row, i in enumerate(range(file_scroll, min(file_scroll + max_visible, len(files_to_use)))):
+                            filename = os.path.basename(files_to_use[i])
                             color = COLOR_YELLOW if i == file_index else COLOR_WHITE
                             attr = curses.A_BOLD if i == file_index else 0
                             marker = "▶" if i == file_index else " "
-                            safe_addstr(stdscr, 4 + i, 2, f"{marker} {i+1:02d}. {filename}", curses.color_pair(color) | attr)
+                            safe_addstr(stdscr, list_top + row, 2, f"{marker} {i+1:02d}. {filename}", curses.color_pair(color) | attr)
                         
-                        safe_addstr(stdscr, 16, 2, "↑/↓: Navigate  ENTER: Load  DEL: Delete  Q: Cancel", curses.color_pair(COLOR_CYAN))
+                        footer_y = list_top + max_visible + 1
+                        if len(files_to_use) > max_visible:
+                            safe_addstr(stdscr, footer_y - 1, 2,
+                                        f"Showing {file_scroll+1}-{min(file_scroll+max_visible, len(files_to_use))} of {len(files_to_use)}"
+                                        f"{'  ↑more' if file_scroll > 0 else ''}"
+                                        f"{'  ↓more' if file_scroll + max_visible < len(files_to_use) else ''}",
+                                        curses.color_pair(COLOR_CYAN))
+                        safe_addstr(stdscr, footer_y, 2, "↑/↓: Navigate  PgUp/PgDn: Page  ENTER: Load  DEL: Delete  Q: Cancel", curses.color_pair(COLOR_CYAN))
                         stdscr.refresh()
                         
                         sel_key = stdscr.getch()
@@ -3611,6 +3629,18 @@ def main_menu(folder):
                         elif sel_key == curses.KEY_DOWN and file_index < len(files_to_use) - 1:
                             file_index += 1
                             need_redraw = True
+                        elif sel_key == curses.KEY_PPAGE:
+                            file_index = max(0, file_index - max_visible)
+                            need_redraw = True
+                        elif sel_key == curses.KEY_NPAGE:
+                            file_index = min(len(files_to_use) - 1, file_index + max_visible)
+                            need_redraw = True
+                        elif sel_key == curses.KEY_HOME:
+                            file_index = 0
+                            need_redraw = True
+                        elif sel_key == curses.KEY_END:
+                            file_index = len(files_to_use) - 1
+                            need_redraw = True
                         elif sel_key in (curses.KEY_DC, ord('d'), ord('D')):  # DEL key or D
                             # Delete selected file with confirmation - use separate dialog loop
                             filename_to_delete = files_to_use[file_index]
@@ -3619,7 +3649,7 @@ def main_menu(folder):
                             while True:
                                 # Show confirmation dialog overlay on existing screen
                                 # Draw confirmation box with separate border and text colors
-                                dialog_y = 18
+                                dialog_y = min(footer_y + 2, max(0, max_y - 8))
                                 safe_addstr(stdscr, dialog_y, 2, "┌──────────────────────────────────────────────────────┐", curses.color_pair(COLOR_RED))
                                 # Title line - separate border and text
                                 safe_addstr(stdscr, dialog_y+1, 2, "│", curses.color_pair(COLOR_RED))
