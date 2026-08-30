@@ -865,6 +865,55 @@ def safe_addstr(stdscr, y, x, text, attr=0):
     except:
         pass
 
+def draw_control_bar(stdscr, y, max_x, segments, max_lines=2, indent=1, sep="  "):
+    """Render (key, label, key_color[, short_label]) hints packed into at most max_lines rows.
+
+    Falls back to the short labels when the full ones do not fit. Returns rows used."""
+    width = max_x - indent - 1
+    if width < 10:
+        return 0
+
+    def pack(items, limit):
+        rows, cur, cur_len = [], [], 0
+        for item in items:
+            item_len = len(item[0]) + 2 + len(item[1])
+            add_len = item_len if not cur else item_len + len(sep)
+            if cur and cur_len + add_len > limit:
+                rows.append(cur)
+                cur, cur_len = [item], item_len
+            else:
+                cur.append(item)
+                cur_len += add_len
+        if cur:
+            rows.append(cur)
+        return rows
+
+    full = [(s[0], s[1], s[2]) for s in segments]
+    short = [(s[0], s[3] if len(s) > 3 else s[1], s[2]) for s in segments]
+
+    rows = pack(full, width)
+    if len(rows) > max_lines:
+        rows = pack(short, width)
+    if len(rows) > 1 and len(rows) <= max_lines:
+        # Even out the rows instead of cramming everything into the first one
+        items = rows[0] + [i for r in rows[1:] for i in r]
+        total = sum(len(i[0]) + 2 + len(i[1]) + len(sep) for i in items)
+        balanced = pack(items, max(width // 2, total // len(rows) + 8))
+        if len(balanced) <= len(rows):
+            rows = balanced
+    rows = rows[:max_lines]
+
+    for row_i, row in enumerate(rows):
+        x = indent
+        for seg_i, (key, label, key_color) in enumerate(row):
+            if seg_i:
+                x += len(sep)
+            safe_addstr(stdscr, y + row_i, x, key, curses.color_pair(key_color) | curses.A_BOLD)
+            x += len(key)
+            safe_addstr(stdscr, y + row_i, x, f": {label}", curses.color_pair(COLOR_WHITE))
+            x += 2 + len(label)
+    return len(rows)
+
 def init_colors():
     """Initialize modern color scheme"""
     if curses.has_colors():
@@ -1981,7 +2030,7 @@ def show_normalization_summary(stdscr, normalized_tracks):
         
         # Get terminal size and check minimum requirements
         max_y, max_x = stdscr.getmaxyx()
-        min_height = 25
+        min_height = 18
         min_width = 80
         
         # Check minimum terminal size
@@ -2097,7 +2146,7 @@ def show_normalization_summary(stdscr, normalized_tracks):
         safe_addstr(stdscr, tracklist_y, 0, f"TRACK LIST ({method_label}):", curses.color_pair(COLOR_YELLOW))
         
         for i, track in enumerate(normalized_tracks):
-            if tracklist_y + 1 + i >= max_y - 10:  # Leave room for footer
+            if tracklist_y + 1 + i >= max_y - 5:  # Leave room for footer
                 break
             
             is_current = i == current_track_idx
@@ -2128,44 +2177,23 @@ def show_normalization_summary(stdscr, normalized_tracks):
             safe_addstr(stdscr, tracklist_y + 1 + i, 0, track_line, curses.color_pair(color) | attr)
         
         # Controls footer
-        footer_y = tracklist_y + 2 + min(len(normalized_tracks), max_y - tracklist_y - 12)
+        footer_y = tracklist_y + 2 + min(len(normalized_tracks), max_y - tracklist_y - 6)
         safe_addstr(stdscr, footer_y, 0, "─" * (max_x - 1), curses.color_pair(COLOR_CYAN))
-        safe_addstr(stdscr, footer_y + 1, 0, "CONTROLS:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 2, 0, "  ↑/↓: Navigate   ", curses.color_pair(COLOR_WHITE))
-        safe_addstr(stdscr, footer_y + 2, 20, "P", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 2, 21, ": Play   ", curses.color_pair(COLOR_WHITE))
-        safe_addstr(stdscr, footer_y + 2, 30, "X", curses.color_pair(COLOR_RED) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 2, 31, ": Stop", curses.color_pair(COLOR_WHITE))
-        
-        safe_addstr(stdscr, footer_y + 3, 0, "  ", curses.color_pair(COLOR_WHITE))
-        safe_addstr(stdscr, footer_y + 3, 2, "←", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 3, 3, ": Rewind 10s   ", curses.color_pair(COLOR_WHITE))
-        safe_addstr(stdscr, footer_y + 3, 20, "→", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 3, 21, ": Forward 10s", curses.color_pair(COLOR_WHITE))
-        
-        safe_addstr(stdscr, footer_y + 4, 0, "  ", curses.color_pair(COLOR_WHITE))
-        safe_addstr(stdscr, footer_y + 4, 2, "[", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 4, 3, ": Prev Track   ", curses.color_pair(COLOR_WHITE))
-        safe_addstr(stdscr, footer_y + 4, 20, "]", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 4, 21, ": Next Track", curses.color_pair(COLOR_WHITE))
-        
-        safe_addstr(stdscr, footer_y + 5, 0, "  ", curses.color_pair(COLOR_WHITE))
-        safe_addstr(stdscr, footer_y + 5, 2, "1", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 5, 3, ": 400Hz   ", curses.color_pair(COLOR_WHITE))
-        safe_addstr(stdscr, footer_y + 5, 13, "2", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 5, 14, ": 1kHz   ", curses.color_pair(COLOR_WHITE))
-        safe_addstr(stdscr, footer_y + 5, 23, "3", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 5, 24, ": 10kHz   ", curses.color_pair(COLOR_WHITE))
-        safe_addstr(stdscr, footer_y + 5, 33, "4", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 5, 34, ": 15kHz   ", curses.color_pair(COLOR_WHITE))
-        safe_addstr(stdscr, footer_y + 5, 43, "5", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 5, 44, ": Sweep", curses.color_pair(COLOR_WHITE))
-        
-        safe_addstr(stdscr, footer_y + 6, 0, "  ", curses.color_pair(COLOR_WHITE))
-        safe_addstr(stdscr, footer_y + 6, 2, "ENTER", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 6, 7, ": Start Recording   ", curses.color_pair(COLOR_WHITE))
-        safe_addstr(stdscr, footer_y + 6, 27, "Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
-        safe_addstr(stdscr, footer_y + 6, 28, ": Cancel", curses.color_pair(COLOR_WHITE))
+        preview_controls = [
+            ("↑/↓", "Navigate", COLOR_WHITE, "Nav"),
+            ("P", "Play", COLOR_GREEN, "Play"),
+            ("X", "Stop", COLOR_RED, "Stop"),
+            ("←/→", "Seek 10s", COLOR_YELLOW, "Seek"),
+            ("[/]", "Prev/Next", COLOR_CYAN, "Trk"),
+            ("1", "400Hz", COLOR_YELLOW, "400"),
+            ("2", "1kHz", COLOR_YELLOW, "1k"),
+            ("3", "10kHz", COLOR_YELLOW, "10k"),
+            ("4", "15kHz", COLOR_YELLOW, "15k"),
+            ("5", "Sweep", COLOR_YELLOW, "Swp"),
+            ("ENTER", "Start Recording", COLOR_GREEN, "Rec"),
+            ("Q", "Cancel", COLOR_RED, "Cancel"),
+        ]
+        draw_control_bar(stdscr, footer_y + 1, max_x, preview_controls, max_lines=2)
         
         stdscr.refresh()
         
@@ -2976,7 +3004,7 @@ def main_menu(folder):
         stdscr.nodelay(True)  # Non-blocking input for real-time updates
         
         # Minimum terminal size check
-        min_height = 25
+        min_height = 18
         min_width = 80
         previewing_index = -1  # Track which file is being previewed
         seek_position = 0.0  # Current seek position in seconds
@@ -3168,8 +3196,8 @@ def main_menu(folder):
             # Calculate dynamic track list size to ensure controls are always visible
             track_start_y = tracklist_y + 1
             
-            # Reserve space for controls at bottom (13 lines: separator + header + 6 control lines + 3 padding)
-            reserved_lines_bottom = 13
+            # Reserve space for controls at bottom (separator + 2 compact control lines + padding)
+            reserved_lines_bottom = 5
             
             # Calculate maximum visible tracks based on available terminal space
             available_space = max_y - track_start_y - reserved_lines_bottom
@@ -3346,61 +3374,26 @@ def main_menu(folder):
                 # === CONTROLS (below both columns) ===
                 controls_y = max(tracks_end_y + 2, max_y - reserved_lines_bottom)
                 safe_addstr(stdscr, controls_y, 0, "─" * (max_x - 1), curses.color_pair(COLOR_CYAN))
-                safe_addstr(stdscr, controls_y + 1, 0, "CONTROLS:", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
-                
-                # Line 1: Navigation, selection, and playback basics
-                safe_addstr(stdscr, controls_y + 2, 0, "  ↑/↓: Navigate   ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 2, 20, "Space", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 2, 25, ": Select   ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 2, 36, "P", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 2, 37, ": Play   ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 2, 46, "X", curses.color_pair(COLOR_RED) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 2, 47, ": Stop", curses.color_pair(COLOR_WHITE))
-                
-                # Line 2: Seek controls
-                safe_addstr(stdscr, controls_y + 3, 0, "  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 3, 2, "←", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 3, 3, ": Rewind 10s   ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 3, 20, "→", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 3, 21, ": Forward 10s", curses.color_pair(COLOR_WHITE))
-                
-                # Line 3: Track jump controls
-                safe_addstr(stdscr, controls_y + 4, 0, "  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 4, 2, "[", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 4, 3, ": Prev Track   ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 4, 20, "]", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 4, 21, ": Next Track", curses.color_pair(COLOR_WHITE))
-                
-                # Line 4: Test tones
-                safe_addstr(stdscr, controls_y + 5, 0, "  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 5, 2, "1", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 5, 3, ": 400Hz   ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 5, 13, "2", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 5, 14, ": 1kHz   ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 5, 23, "3", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 5, 24, ": 10kHz   ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 5, 33, "4", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 5, 34, ": 15kHz   ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 5, 43, "5", curses.color_pair(COLOR_YELLOW) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 5, 44, ": Sweep", curses.color_pair(COLOR_WHITE))
-                
-                # Line 5: List management controls
-                safe_addstr(stdscr, controls_y + 6, 0, "  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 6, 2, "C", curses.color_pair(COLOR_RED) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 6, 3, ": Clear All   ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 6, 20, "S", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 6, 21, ": Save   ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 6, 30, "L", curses.color_pair(COLOR_CYAN) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 6, 31, ": Load", curses.color_pair(COLOR_WHITE))
-                
-                # Line 6: Main actions
-                safe_addstr(stdscr, controls_y + 7, 0, "  ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 7, 2, "ENTER", curses.color_pair(COLOR_GREEN) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 7, 7, ": Start Recording   ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 7, 27, "G", curses.color_pair(COLOR_MAGENTA) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 7, 28, ": Create Profile   ", curses.color_pair(COLOR_WHITE))
-                safe_addstr(stdscr, controls_y + 7, 47, "Q", curses.color_pair(COLOR_RED) | curses.A_BOLD)
-                safe_addstr(stdscr, controls_y + 7, 48, ": Quit", curses.color_pair(COLOR_WHITE))
+                control_segments = [
+                    ("↑/↓", "Navigate", COLOR_WHITE, "Nav"),
+                    ("Space", "Select", COLOR_GREEN, "Sel"),
+                    ("P", "Play", COLOR_GREEN, "Play"),
+                    ("X", "Stop", COLOR_RED, "Stop"),
+                    ("←/→", "Seek 10s", COLOR_YELLOW, "Seek"),
+                    ("[/]", "Prev/Next", COLOR_CYAN, "Trk"),
+                    ("1", "400Hz", COLOR_YELLOW, "400"),
+                    ("2", "1kHz", COLOR_YELLOW, "1k"),
+                    ("3", "10kHz", COLOR_YELLOW, "10k"),
+                    ("4", "15kHz", COLOR_YELLOW, "15k"),
+                    ("5", "Sweep", COLOR_YELLOW, "Swp"),
+                    ("C", "Clear All", COLOR_RED, "Clr"),
+                    ("S", "Save", COLOR_CYAN, "Save"),
+                    ("L", "Load", COLOR_CYAN, "Load"),
+                    ("ENTER", "Record", COLOR_GREEN, "Rec"),
+                    ("G", "Profile", COLOR_MAGENTA, "Prof"),
+                    ("Q", "Quit", COLOR_RED, "Quit"),
+                ]
+                draw_control_bar(stdscr, controls_y + 1, max_x, control_segments, max_lines=2)
             else:
                 # Not enough space for track list at all - show warning
                 if track_start_y < max_y - 2:
